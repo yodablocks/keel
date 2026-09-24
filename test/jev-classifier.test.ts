@@ -68,3 +68,12 @@ test("when Jev is unavailable the rule verdict is used instead of failing the cl
 
   assert.deepEqual(verdict, { kind: "fatal", confidence: 0.5 });
 });
+
+test("the error's cause is sent to Jev, since fetch hides network errors behind it", async () => {
+  const { client, requests } = fakeClient({ transient: 0.95, fatal: 0.05 }, 0.9);
+  const refused = Object.assign(new Error("connect ECONNREFUSED 10.0.0.5:443"), { code: "ECONNREFUSED" });
+
+  await new JevClassifier({ client }).classify(ctx(new TypeError("fetch failed", { cause: refused })));
+
+  assert.match(JSON.stringify(requests[0]!.state), /ECONNREFUSED 10\.0\.0\.5:443/);
+});

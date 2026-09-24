@@ -99,7 +99,14 @@ function describeFailure(ctx: FailureContext) {
       ...(fields?.status !== undefined && { status: fields.status }),
       ...(fields?.statusCode !== undefined && { status: fields.statusCode }),
       ...(fields?.code !== undefined && { code: fields.code }),
+      ...(fields?.cause !== undefined && { cause: describeCause(fields.cause) }),
     },
     payload: payload.length > PAYLOAD_PREVIEW_CHARS ? `${payload.slice(0, PAYLOAD_PREVIEW_CHARS)}... (truncated)` : payload,
   };
+}
+
+function describeCause(cause: unknown): string {
+  if (!(cause instanceof Error)) return String(cause);
+  const code = (cause as Error & { code?: unknown }).code;
+  return `${cause.name}: ${cause.message}${code !== undefined ? ` (code ${String(code)})` : ""}`;
 }
