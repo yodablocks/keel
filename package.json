@@ -18,7 +18,8 @@
     "eval:classifier": "node --env-file-if-exists=.env scripts/eval-classifier.ts",
     "demo": "node --env-file-if-exists=.env scripts/demo.ts",
     "bench:deferred": "node --env-file-if-exists=.env scripts/bench-deferred.ts",
-    "eval:export": "node --env-file-if-exists=.env scripts/eval-export.ts"
+    "eval:export": "node --env-file-if-exists=.env scripts/eval-export.ts",
+    "dashboard": "node --env-file-if-exists=.env scripts/dashboard.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"

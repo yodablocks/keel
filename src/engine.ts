@@ -310,7 +310,7 @@ export interface Engine {
   /** Sets a task's default per-run budget and daily limits. Omitted limits are removed. */
   setTaskBudget(task: string, budget: TaskBudget): Promise<void>;
   /** Approval requests that are still waiting for a decision, oldest first. */
-  listPendingApprovals(): Promise<Approval[]>;
+  listPendingApprovals(filter?: Omit<RunFilter, "status">): Promise<Approval[]>;
   /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
   resolveApproval(runId: string, name: string, decision: ApprovalDecision): Promise<{ resolved: boolean }>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
@@ -441,13 +441,16 @@ export function createEngine(options: EngineOptions): Engine {
       );
     },
 
-    async listPendingApprovals() {
+    async listPendingApprovals(filter = {}) {
       const { rows } = await pool.query(
         `SELECT w.run_id, w.name, r.task, w.prompt, w.created_at,
                 CASE WHEN w.wake_at = 'infinity' THEN NULL ELSE w.wake_at END AS expires_at
          FROM waits w JOIN runs r ON r.id = w.run_id
          WHERE w.kind IN ('approval', 'escalation') AND w.resolved_at IS NULL AND w.consumed_at IS NULL
-         ORDER BY w.created_at`,
+           AND ($1::text IS NULL OR r.queue = $1) AND ($2::text IS NULL OR r.task = $2) AND ($3::text IS NULL OR r.tenant = $3)
+         ORDER BY w.created_at
+         LIMIT $4`,
+        [filter.queue ?? null, filter.task ?? null, filter.tenant ?? null, Math.min(Math.max(filter.limit ?? 500, 1), 5000)],
       );
       return rows.map(toApproval);
     },

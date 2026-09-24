@@ -8,3 +8,5 @@ export { BadInputError, BadOutputError, defaultPolicy, KeelError, NeedsHumanErro
 export type { DefaultPolicyOptions, KeelErrorOptions, FailureAction, FailureClassifier, FailureContext, FailureKind, FailurePolicy, FailureVerdict } from "./failure.ts";
 export { JevClassifier } from "./jev-classifier.ts";
 export type { JevClassifierOptions, SystemOneClient } from "./jev-classifier.ts";
+export { escapeHtml, startDashboard } from "./dashboard.ts";
+export type { Dashboard, DashboardOptions } from "./dashboard.ts";
