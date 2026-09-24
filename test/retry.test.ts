@@ -163,7 +163,7 @@ test("a custom classifier fully controls the outcome", async (t) => {
   assert.equal(run.errors[0]?.kind, "transient");
 });
 
-test("a run that needs a human is escalated once, not retried", async (t) => {
+test("a run that needs a human is escalated to a person once, not retried", async (t) => {
   const { engine, queue, workers } = setup(t);
   let calls = 0;
   const worker = engine.createWorker({
@@ -179,9 +179,12 @@ test("a run that needs a human is escalated once, not retried", async (t) => {
   worker.start();
 
   const { id } = await engine.enqueue("refund", {}, { queue, maxAttempts: 3 });
-  const run = await settled(engine, id);
+  const run = await waitFor(async () => {
+    const r = await engine.getRun(id);
+    return r?.status === "waiting" && r;
+  }, 5000, "run to wait for a person");
 
-  assert.equal(run.status, "failed");
   assert.equal(calls, 1);
+  assert.ok((await engine.listPendingApprovals()).some((a) => a.runId === id), "an escalation is pending");
   assert.deepEqual(run.errors[0]?.action, { type: "escalate", reason: "refund of $900 is over the $500 auto-approve limit" });
 });

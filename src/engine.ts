@@ -192,6 +192,11 @@ export interface WorkerOptions {
    * for example in Slack or by email. Errors are logged and do not affect the run.
    */
   onApprovalRequested?: (approval: Approval) => Promise<void> | void;
+  /**
+   * When the policy escalates a failure, the run waits this long for engine.resolveApproval before
+   * failing. Approval retries it once more with the reviewer's comment as ctx.hint. Defaults to 24 hours.
+   */
+  escalationTimeoutMs?: number;
 }
 
 export interface StopOptions {
@@ -383,6 +388,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   const leaseMs = options.leaseMs ?? 30_000;
   const heartbeatMs = options.heartbeatMs ?? Math.floor(leaseMs / 3);
   const pollMs = options.pollMs ?? 50;
+  const escalationTimeoutMs = options.escalationTimeoutMs ?? 24 * 60 * 60 * 1000;
   const classifier = options.classifier ?? new RuleClassifier();
   const policy = options.policy ?? defaultPolicy();
   let running = false;
@@ -439,7 +445,45 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     return rows[0];
   }
 
+  // A run parked by an escalation resumes here once a person decided or the escalation timed out.
+  // Returns false when the run must not execute (rejected or timed out).
+  async function applyEscalationDecision(run: ClaimedRun): Promise<boolean> {
+    const { rows } = await pool.query<{ resolved: boolean; payload: ApprovalDecision | null }>(
+      `UPDATE waits SET consumed_at = now()
+       WHERE run_id = $1 AND kind = 'escalation' AND consumed_at IS NULL
+         AND (resolved_at IS NOT NULL OR wake_at <= now())
+       RETURNING resolved_at IS NOT NULL AS resolved, payload`,
+      [run.id],
+    );
+    const decision = rows[0];
+    if (!decision) return true;
+
+    if (decision.resolved && decision.payload?.approved) {
+      // Approval grants one more attempt, even past maxAttempts.
+      const hint = decision.payload.comment ?? `Approved by ${decision.payload.by ?? "a reviewer"}`;
+      const { rows: updated } = await pool.query<{ attempt: number; max_attempts: number }>(
+        `UPDATE runs SET attempt = attempt + 1, max_attempts = GREATEST(max_attempts, attempt + 1), hint = $3, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2
+         RETURNING attempt, max_attempts`,
+        [run.id, id, hint],
+      );
+      if (!updated[0]) return false;
+      run.attempt = updated[0].attempt;
+      run.max_attempts = updated[0].max_attempts;
+      run.hint = hint;
+      return true;
+    }
+
+    await pool.query(
+      `UPDATE runs SET status = 'failed', lease_owner = NULL, lease_expires = NULL, updated_at = now()
+       WHERE id = $1 AND lease_owner = $2`,
+      [run.id, id],
+    );
+    return false;
+  }
+
   async function execute(run: ClaimedRun): Promise<void> {
+    if (!(await applyEscalationDecision(run))) return;
     const handler = options.tasks[run.task];
     const abort = new AbortController();
     const heartbeat = setInterval(() => {
@@ -634,6 +678,49 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     return { step, wait, approval };
   }
 
+  async function escalate(
+    run: ClaimedRun,
+    error: unknown,
+    verdict: FailureVerdict,
+    action: Extract<FailureAction, { type: "escalate" }>,
+  ): Promise<void> {
+    const entry: RunError = {
+      attempt: run.attempt,
+      ...serializeError(error),
+      kind: verdict.kind,
+      confidence: verdict.confidence,
+      action,
+      at: new Date().toISOString(),
+    };
+    const name = `escalation-${run.attempt}`;
+    const prompt = `"${run.task}" failed on attempt ${run.attempt} and needs a decision: ${action.reason}`;
+    // Parking the run and opening the escalation happen in one statement, so neither exists without the other.
+    const { rows } = await pool.query(
+      `WITH parked AS (
+         UPDATE runs SET
+           status = 'waiting',
+           run_after = now() + make_interval(secs => $5::double precision / 1000),
+           last_error = $3::jsonb,
+           errors = errors || jsonb_build_array($3::jsonb),
+           lease_owner = NULL, lease_expires = NULL, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2
+         RETURNING id
+       )
+       INSERT INTO waits (run_id, name, kind, prompt, wake_at)
+       SELECT id, $4, 'escalation', $6, now() + make_interval(secs => $5::double precision / 1000) FROM parked
+       ON CONFLICT (run_id, name) DO NOTHING
+       RETURNING run_id, name, prompt, created_at, wake_at AS expires_at`,
+      [run.id, id, JSON.stringify(entry), name, escalationTimeoutMs, prompt],
+    );
+    if (rows[0] && options.onApprovalRequested) {
+      try {
+        await options.onApprovalRequested(toApproval({ ...rows[0], task: run.task }));
+      } catch (hookError) {
+        console.error(`[keel] ${id} onApprovalRequested failed:`, hookError);
+      }
+    }
+  }
+
   async function recordFailure(run: ClaimedRun, error: unknown): Promise<void> {
     const ctx: FailureContext = { error, task: run.task, payload: run.payload, attempt: run.attempt, maxAttempts: run.max_attempts };
     let verdict: FailureVerdict;
@@ -644,6 +731,10 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       verdict = { kind: "fatal", confidence: 0 };
     }
     const action = policy(verdict, ctx);
+    if (action.type === "escalate") {
+      await escalate(run, error, verdict, action);
+      return;
+    }
     const wantsRetry = action.type === "retry" || action.type === "retry_modified";
     const status = !wantsRetry ? "failed" : run.attempt >= run.max_attempts ? "dead" : "queued";
     const delayMs = action.type === "retry" ? action.delayMs : action.type === "retry_modified" ? (action.delayMs ?? 0) : 0;
