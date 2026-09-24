@@ -17,14 +17,14 @@ const recording: SystemOneClient = {
     const response = await sdk.systemOne(request as Parameters<typeof sdk.systemOne>[0]);
     inputTokens += response.usage.input_tokens;
     outputTokens += response.usage.output_tokens;
-    const answer = (response.answers as Record<string, { choice?: string; confidence?: number }>).failure_kind ?? {};
-    rawAnswers.push(answer);
-    return response as Awaited<ReturnType<SystemOneClient["systemOne"]>>;
+    rawAnswers.push((response.answers.failure_kind ?? {}) as { choice?: string; confidence?: number });
+    return response;
   },
 };
 
+const MIN_CONFIDENCE = 0.5;
 const rules = new RuleClassifier();
-const cascade = new JevClassifier({ client: recording });
+const cascade = new JevClassifier({ client: recording, minConfidence: MIN_CONFIDENCE });
 
 interface Row {
   task: string;
@@ -62,7 +62,8 @@ const summary = {
   jevRaw: accuracy((r) => r.jev),
   cascade: accuracy((r) => r.cascade),
   jevCalls: rawAnswers.length,
-  fellBackToRules: rows.filter((r) => r.jev !== null && r.cascade !== r.jev).length,
+  // Jev answers below the threshold, whether or not the rule verdict happened to agree.
+  belowThreshold: rows.filter((r) => r.jevConfidence !== null && r.jevConfidence < MIN_CONFIDENCE).length,
   tokens: { input: inputTokens, output: outputTokens },
 };
 
@@ -70,7 +71,7 @@ console.log(`Cases: ${n}`);
 console.log(`Rules:          ${summary.rules}/${n} (${Math.round((summary.rules / n) * 100)}%)`);
 console.log(`Jev (raw):      ${summary.jevRaw}/${n} (${Math.round((summary.jevRaw / n) * 100)}%)`);
 console.log(`Cascade:        ${summary.cascade}/${n} (${Math.round((summary.cascade / n) * 100)}%)`);
-console.log(`Jev calls: ${summary.jevCalls}, fell back to rules: ${summary.fellBackToRules}, tokens: ${inputTokens} in / ${outputTokens} out`);
+console.log(`Jev calls: ${summary.jevCalls}, below ${MIN_CONFIDENCE} confidence (rules used): ${summary.belowThreshold}, tokens: ${inputTokens} in / ${outputTokens} out`);
 console.log("\nMisclassified by the cascade:");
 for (const r of rows.filter((r) => r.cascade !== r.label)) {
   console.log(`  [${r.label} -> ${r.cascade}] (jev: ${r.jev} @ ${r.jevConfidence?.toFixed(2)}) ${r.message}`);
