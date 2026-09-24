@@ -30,3 +30,20 @@ test("an explicit error class is classified by rules without calling Jev", async
   assert.deepEqual(verdict, { kind: "bad_output", confidence: 1 });
   assert.equal(requests.length, 0);
 });
+
+test("an ambiguous failure is classified by Jev from the error and run context", async () => {
+  const { client, requests } = fakeClient({ transient: 0.03, bad_input: 0.02, bad_output: 0.9, needs_human: 0.02, fatal: 0.03 }, 0.87);
+
+  const verdict = await new JevClassifier({ client }).classify(
+    ctx(new Error("Model requested tool `serch_web`, which is not in the provided tool list")),
+  );
+
+  assert.deepEqual(verdict, { kind: "bad_output", confidence: 0.87 });
+  assert.equal(requests.length, 1);
+  const sent = JSON.stringify(requests[0]!.state);
+  assert.match(sent, /serch_web/);
+  assert.match(sent, /research-agent/);
+  const question = requests[0]!.questions.failure_kind as { type: string; criteria: Record<string, unknown> };
+  assert.equal(question.type, "choice");
+  assert.deepEqual(Object.keys(question.criteria).sort(), ["bad_input", "bad_output", "fatal", "needs_human", "transient"]);
+});
