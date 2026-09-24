@@ -28,6 +28,8 @@ if (cases.length === 0) {
 const sdk = new TypeSafeClient();
 let lastAnswer: { choice?: string; confidence?: number } | undefined;
 let calls = 0;
+// The concrete model behind "jev-latest" (for example jev-1.13.0), so runs on different days are comparable.
+const models = new Set<string>();
 let inputTokens = 0;
 let outputTokens = 0;
 
@@ -36,6 +38,7 @@ const recording: SystemOneClient = {
   async systemOne(request) {
     const response = await sdk.systemOne(request as Parameters<typeof sdk.systemOne>[0]);
     calls++;
+    models.add(response.model);
     inputTokens += response.usage.input_tokens;
     outputTokens += response.usage.output_tokens;
     lastAnswer = (response.answers.failure_kind ?? {}) as { choice?: string; confidence?: number };
@@ -100,6 +103,7 @@ const summary = {
   withoutContext: { jevRaw: correct((r) => r.withoutContext.jev), cascade: correct((r) => r.withoutContext.cascade), belowThreshold: below((r) => r.withoutContext.jevConfidence) },
   withContext: { jevRaw: correct((r) => r.withContext.jev), cascade: correct((r) => r.withContext.cascade), belowThreshold: below((r) => r.withContext.jevConfidence) },
   jevCalls: calls,
+  models: [...models],
   tokens: { input: inputTokens, output: outputTokens },
 };
 
@@ -110,7 +114,7 @@ console.log(`Jev raw, without step context:  ${pct(summary.withoutContext.jevRaw
 console.log(`Cascade, without step context:  ${pct(summary.withoutContext.cascade)}  (${summary.withoutContext.belowThreshold} below ${MIN_CONFIDENCE})`);
 console.log(`Jev raw, with step context:     ${pct(summary.withContext.jevRaw)}`);
 console.log(`Cascade, with step context:     ${pct(summary.withContext.cascade)}  (${summary.withContext.belowThreshold} below ${MIN_CONFIDENCE})`);
-console.log(`Jev calls: ${calls}, tokens: ${inputTokens} in / ${outputTokens} out`);
+console.log(`Jev calls: ${calls} (model ${[...models].join(", ")}), tokens: ${inputTokens} in / ${outputTokens} out`);
 console.log("\nMisclassified by the cascade with step context:");
 for (const r of rows.filter((r) => r.withContext.cascade !== r.label)) {
   console.log(`  [${r.label} -> ${r.withContext.cascade}] (jev: ${r.withContext.jev} @ ${r.withContext.jevConfidence?.toFixed(2)}) ${r.message}`);
@@ -123,5 +127,5 @@ for (const r of rows.filter((r) => r.withContext.cascade !== r.withoutContext.ca
 
 await mkdir("eval-results", { recursive: true });
 const file = `eval-results/classifier-${new Date().toISOString().slice(0, 19).replaceAll(":", "-")}.json`;
-await writeFile(file, JSON.stringify({ model: "jev-latest", summary, rows }, null, 2));
+await writeFile(file, JSON.stringify({ model: [...models].join(", "), summary, rows }, null, 2));
 console.log(`\nWrote ${file}`);
