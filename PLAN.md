@@ -11,7 +11,7 @@
 | Phase | Milestones | Status |
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
-| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode (done); M15 benchmark and packaging (planned) | In progress |
+| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging | Done |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -166,7 +166,7 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 
 ---
 
-# Phase 2: production readiness (in progress)
+# Phase 2: production readiness (done)
 
 Same rules as phase 1: acceptance tests first, real Postgres, one PR per milestone. New npm packages are named before they are installed and installed by the maintainer through `sfw`.
 
@@ -260,7 +260,7 @@ Replay-based durability means any process can resume any run, so a long-lived wo
 - Deadline releases are **progress-aware** (chosen by the maintainer): with at least one new step stored, the run is paused without using up an attempt; without progress it counts as a `Released` attempt, so a step longer than any deadline ends `dead` instead of looping
 - Tests for both acceptance criteria plus the no-progress guard, `maxRuns` and the started-worker guard; each rule was shown to fail its test when broken
 
-## M15: Benchmark and packaging
+## M15: Benchmark and packaging (done)
 
 - `pnpm bench`: enqueue-to-complete throughput and latency (p50, p99) for 1 to 32 workers on one Postgres, with the hardware noted. The numbers replace "roughly thousands of jobs per second" in the README
 - Packaging: a build step that emits JavaScript and type declarations to `dist/`, an `exports` map and a `files` list, so keel installs from git or a tarball. Publishing to npm stays a separate decision
@@ -268,6 +268,12 @@ Replay-based durability means any process can resume any run, so a long-lived wo
 **Acceptance:**
 - Benchmark results are recorded in the README and reproducible with one command
 - A fresh project installs the `pnpm pack` tarball and runs a task with steps and a wait
+
+**How it was met:**
+- `pnpm build` (tsc with `rewriteRelativeImportExtensions`) emits `dist/`; `exports`, `main`, `types` and `files` (dist, src for source maps, migrations, README, LICENSE). The package stays private
+- `test/package.test.ts` packs the tarball, unpacks it into a temp project (linking the already-installed `pg` instead of installing), and runs a plain JavaScript task with two steps and a wait. Shown to fail without the migrations or without an entry point
+- `pnpm bench`: throughput for 1 to 32 workers and latency on idle workers, with the environment recorded. Added `createEngine({ poolSize })`
+- **Finding:** throughput plateaued at 8 workers. Node was under half a core busy; removing the task spend update restored scaling, so the cause was the single daily spend row per task that every step updated. Tenant and task spend are now sharded over 16 rows (the maintainer's choice over skipping untracked spend): 32 workers went from about 1,600 to about 2,000 runs per second, and 4 to 8 workers lost about 12 to 15%
 
 ---
 
@@ -305,8 +311,10 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 
 - ~~Deferred runs of an over-budget tenant are re-evaluated on every claim.~~ Fixed in M10 by parking them (measured: 10,000 deferred runs slowed other tenants by about 37% before, none after)
 - ~~Each idle poll runs two queries (poison-pill sweep, then claim).~~ Fixed in M10: the sweep runs every `sweepEveryMs`
-- Extra queries per claim (decided escalations) and per new step of a tenant's run (tenant budget), and an `EXISTS` check per waiting run. Fine at the current scale. **Measured in M15**
-- One Postgres is the throughput ceiling. **Measured in M15; sharding is a non-goal**
+- Extra queries per claim (decided escalations) and per new step of a tenant's run (tenant budget), and an `EXISTS` check per waiting run. Included in the M15 benchmark numbers. **Accepted**
+- One Postgres is the throughput ceiling: about 2,000 runs per second on the benchmark machine. **Measured in M15; sharding is a non-goal**
+- Sharded spend costs about 12 to 15% throughput at 4 to 8 workers compared with a single row. **Accepted**
+- The benchmark runs all workers in one Node process with Postgres on the same machine; production numbers will differ. **Accepted**
 
 ### Operations
 

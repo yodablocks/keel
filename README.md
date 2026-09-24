@@ -53,7 +53,7 @@ pnpm demo --offline           # the end-to-end agent demo, no API key needed
 ## Example
 
 ```ts
-import { createEngine } from "./src/index.ts"; // not published to npm yet
+import { createEngine } from "keel"; // see "Use it in your project" below
 
 const engine = createEngine({ connectionString: process.env.DATABASE_URL! });
 
@@ -88,6 +88,17 @@ No long-lived process? Call `await worker.runOnce({ deadlineMs: 25_000 })` from 
 
 See the **[guide](docs/guide.md)** for every feature: steps, waits, budgets, the classifier, approvals, and the rules that keep replay correct.
 
+## Use it in your project
+
+keel is not published to npm. Build a tarball and add it to your project:
+
+```sh
+cd keel && pnpm pack                        # builds dist/ and writes keel-0.0.0.tgz
+cd ../your-app && pnpm add ../keel/keel-0.0.0.tgz pg
+```
+
+The package ships compiled JavaScript with type declarations, the SQL migrations, and the TypeScript sources for source maps. Run `migrate(connectionString)` once at startup, or `pnpm db:migrate` from the keel checkout.
+
 ## Dashboard
 
 ```sh
@@ -101,6 +112,24 @@ Each run has a logbook: steps with their cost, failures with how they were class
 ![A run waiting for approval](docs/images/dashboard-approval.png)
 
 The dashboard has **no login**. It listens on `127.0.0.1` by default; don't expose it to a network. Pages allow no scripts, forms carry a per-process token, and requests for other hostnames are refused.
+
+## Performance
+
+`pnpm bench` on an Apple M4 (10 cores, 32 GB), Node 25, Postgres 17 in Docker on the same machine. Each run executes one durable step; 2,000 runs per configuration; all workers in **one Node process**:
+
+| Workers | Runs per second |
+|---|---|
+| 1 | 445 to 471 |
+| 2 | 861 to 873 |
+| 4 | 1,365 to 1,442 |
+| 8 | 1,618 to 1,683 |
+| 16 | 1,897 to 1,904 |
+| 32 | 1,974 to 2,023 |
+
+Enqueue to completion on idle workers: **p50 26 ms, p99 51 to 55 ms**. That is mostly the default 50 ms polling interval.
+
+- Throughput scales to 32 workers. An earlier version plateaued at 8 workers and dipped at 32. Profiling showed Node using under half of one core, and the cause was every step updating the same daily spend row per task. Spend is now sharded over 16 rows, which lifted 32 workers from about 1,600 to 2,000 runs per second, at the cost of about 12 to 15% at 4 to 8 workers.
+- These are single-machine numbers with the database next to the workers, from a small number of runs each. Network latency to a managed Postgres, more workers per process, or heavier steps change them. Rerun `pnpm bench` on your own setup; raw results are in [`bench-results/`](bench-results/).
 
 ## How it works
 
@@ -169,12 +198,12 @@ keel is an **experimental project**, and the name is not final. All planned mile
 - Budgets can overshoot by one step, because a step's cost is known only after it runs.
 - Idempotency keys protect external calls only for services that accept them.
 - Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
-- A single Postgres instance is the throughput ceiling (thousands of jobs per second).
+- A single Postgres instance is the throughput ceiling: about 2,000 runs per second in the benchmark above.
 - The dashboard has no authentication, so it is for local or internal use only.
 
 The full list is under [Known risks](PLAN.md#known-risks), each tagged with the milestone that addresses it.
 
-**Roadmap:** phase 2 (hardening, classification with step context, budget fallbacks, the dashboard and serverless mode are done; a benchmark and packaging are next) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
+**Roadmap:** phases 1 and 2 are complete; see [PLAN.md](PLAN.md) for what was built, the measured results, and the deliberate [non-goals](PLAN.md#non-goals).
 
 ## Development
 
@@ -182,6 +211,8 @@ The full list is under [Known risks](PLAN.md#known-risks), each tagged with the 
 pnpm test        # node:test against the real Postgres from docker-compose (no database mocks)
 pnpm typecheck   # tsc --noEmit
 pnpm db:migrate  # applies db/migrations/*.sql in order
+pnpm build       # compiles src/ to dist/ (JavaScript and type declarations)
+pnpm bench       # throughput and latency, results in bench-results/
 ```
 
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the type check and the full test suite against Postgres 17 on every pull request and every push to `main`.
