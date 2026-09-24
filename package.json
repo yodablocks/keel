@@ -9,10 +9,11 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test --test-timeout=20000 'test/**/*.test.ts'",
+    "test": "node --test --test-timeout=20000 --test-global-setup=test/helpers/global-setup.ts 'test/**/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"

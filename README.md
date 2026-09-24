@@ -21,6 +21,7 @@ pnpm add pg
 pnpm add -D typescript @types/node @types/pg
 cp .env.example .env
 pnpm db:up
+pnpm db:migrate
 pnpm test
 pnpm typecheck
 ```
