@@ -6,7 +6,7 @@ An agent-native durable execution engine for TypeScript, backed by Postgres.
 
 Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
 
-Status: **M4 done** (queue with leases, retries, failure classification, idempotency keys, durable steps). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+Status: **M5 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
 
 ## Requirements
 
@@ -89,6 +89,25 @@ Rules that keep replay correct:
 - **Step names must be unique within a run.** In loops, include the index: `` ctx.step.run(`fetch-${i}`, ...) ``. A repeated name throws `DuplicateStepError`.
 - **Results must be JSON-serializable.** They are JSON round-tripped on the first run too, so a `Date` is a string both times and `undefined` becomes `null`.
 - **A step that crashes before finishing runs again**, including its side effects. Make external calls idempotent where you can.
+
+## Waits
+
+```ts
+tasks: {
+  refund: async ({ orderId }, ctx) => {
+    await ctx.wait.for("cool-off", 60 * 60_000); // worker is freed for the hour
+    const approval = await ctx.wait.forEvent("approval", `approved:${orderId}`, { timeoutMs: 24 * 3600_000 });
+    if (approval.timedOut) return "expired";
+    return ctx.step.run("refund", () => issueRefund(orderId, approval.payload));
+  },
+}
+
+await engine.sendEvent("approved:42", { by: "alice" });
+```
+
+- A waiting run has status `waiting` and holds no worker. It resumes by replay, so the durable step rules apply.
+- Events wake only waits that already exist. An event sent before the run reaches `forEvent` is not delivered; use a timeout.
+- Waits suspend the run by throwing `RunSuspended`. If you wrap a wait in `try/catch`, rethrow it.
 
 ## TypeScript notes
 

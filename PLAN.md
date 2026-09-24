@@ -92,11 +92,12 @@ interface FailureClassifier {
 
 ---
 
-## M5: Waits
+## M5: Waits (done)
 
-- `ctx.wait.for(duration)` and `ctx.wait.forEvent(name, { timeout })`
-- The run releases its worker while waiting (it stores a wake condition and returns to `queued` with a future `run_after`)
-- `sendEvent(name, payload)` wakes matching waiters
+- `ctx.wait.for(name, ms)` and `ctx.wait.forEvent(name, eventName, { timeoutMs })`, named and unique per run like steps
+- A wait throws `RunSuspended`: the run moves to a new `waiting` status and frees its worker. It resumes by replay, and resuming is not a new attempt
+- `engine.sendEvent(eventName, payload)` resolves open waits on that event name. Events are not buffered: only waits registered before the event count
+- The claim query treats a waiting run as ready when its timer is due or its event has arrived, so an event landing between "wait registered" and "run suspended" is not lost
 
 **Acceptance:** 100 runs each waiting 1 hour hold zero workers. A wait with a timeout resumes with a timeout result if no event arrives.
 
@@ -154,6 +155,10 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 - Horizontal sharding beyond what a single Postgres handles
 
 ## Known risks
+
+- A handler that wraps a wait in `try/catch` and swallows `RunSuspended` breaks suspension. Documented; a lint rule or a non-Error signal could enforce it later.
+- Parallel waits in one handler (`Promise.all` of two waits) are not supported: the run suspends on whichever throws first.
+- Claiming waiting runs uses an `EXISTS` check per waiting run. Fine for thousands of waiting runs per queue; revisit with a wake-up queue beyond that.
 
 - The `steps` table is never cleaned up. Add retention (for example delete steps of runs completed more than N days ago) alongside the idempotency key purge.
 - Only step *results* are durable. Side effects inside a step that crashes before its result is stored will run again on replay. M8's tool-call idempotency keys address this for external calls.
