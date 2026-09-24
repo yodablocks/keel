@@ -160,10 +160,11 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 - Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented.
 - USD is stored as double precision. Fine for budget limits; not suitable for billing or invoicing, which need integer cents or `numeric`.
 - Each new step of a tenant's run costs one extra query for the tenant budget check.
+- Deferred runs are rescanned on every claim: queued and paused runs of an over-budget tenant still match the claim's time condition, so each poll re-evaluates the tenant budget for every one of them before reaching a claimable run. A tenant with thousands of deferred runs slows every claim. Fix with a `deferred_until` column or a per-tenant skip list.
 - Tenant budget checks are not atomic across workers: several runs of one tenant can each pass the check and run a step at the same moment, so a tenant can overshoot by up to one step per concurrently running run.
 - `tenant_spend` keeps one row per tenant per day forever. Add it to the retention job with steps and idempotency keys.
 
-- A handler that wraps a wait in `try/catch` and swallows `RunSuspended` breaks suspension. Documented; a lint rule or a non-Error signal could enforce it later.
+- A handler that wraps a wait or a step in `try/catch` and swallows `RunSuspended` or `LeaseLostError` breaks suspension: a budget-paused run can complete with steps skipped. Documented in the README; a lint rule or a non-Error signal could enforce it later.
 - Parallel waits in one handler (`Promise.all` of two waits) are not supported: the run suspends on whichever throws first.
 - Claiming waiting runs uses an `EXISTS` check per waiting run. Fine for thousands of waiting runs per queue; revisit with a wake-up queue beyond that.
 

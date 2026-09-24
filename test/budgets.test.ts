@@ -96,8 +96,10 @@ test("a tenant at its daily budget has new runs deferred, not failed, until the 
 
 test("a run whose tenant hits its limit mid-way pauses at the next step and resumes when allowed", async (t) => {
   const calls = { a: 0, b: 0, c: 0 };
+  let entries = 0;
   const { engine, queue, tenant } = setup(t, {
     agent: async (_payload, ctx) => {
+      entries++;
       await ctx.step.run("a", () => calls.a++, cost(0.6, 0));
       await ctx.step.run("b", () => calls.b++, cost(0.6, 0));
       await ctx.step.run("c", () => calls.c++, cost(0.1, 0));
@@ -108,7 +110,9 @@ test("a run whose tenant hits its limit mid-way pauses at the next step and resu
 
   const { id } = await engine.enqueue("agent", {}, { queue, tenant });
   await status(engine, id, "waiting");
+  await new Promise((resolve) => setTimeout(resolve, 300));
   assert.deepEqual(calls, { a: 1, b: 1, c: 0 });
+  assert.equal(entries, 1, "a paused run is held, not re-claimed in a loop");
 
   await engine.setTenantBudget(tenant, { usdPerDay: 10 });
   const run = await status(engine, id, "completed");

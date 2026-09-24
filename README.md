@@ -107,7 +107,7 @@ await engine.sendEvent("approved:42", { by: "alice" });
 
 - A waiting run has status `waiting` and holds no worker. It resumes by replay, so the durable step rules apply.
 - Events wake only waits that already exist. An event sent before the run reaches `forEvent` is not delivered; use a timeout.
-- Waits suspend the run by throwing `RunSuspended`. If you wrap a wait in `try/catch`, rethrow it.
+- Waits suspend the run by throwing `RunSuspended`. See [Control-flow errors](#control-flow-errors).
 
 ## Budgets
 
@@ -130,6 +130,26 @@ tasks: {
 - **Per-run budget:** checked before each new step. A run over its budget fails as `over_budget`, which the default policy escalates.
 - **Tenant daily budget** (UTC day): the tenant's runs are deferred, not failed. Queued runs wait, and running runs pause as `waiting` at their next step. They continue the next day, or as soon as you raise the limit.
 - Budgets can overshoot by up to one step, because a step's cost is known only after it runs.
+
+## Control-flow errors
+
+`ctx.step.run` and `ctx.wait.*` can throw two errors that are signals to the engine, not failures:
+
+- `RunSuspended`: the run is pausing (a wait, or its tenant hit a budget mid-run)
+- `LeaseLostError`: another worker owns the run now
+
+If you catch errors around a step or a wait, rethrow these:
+
+```ts
+try {
+  return await ctx.step.run("llm", () => callModel(prompt));
+} catch (err) {
+  if (err instanceof RunSuspended || err instanceof LeaseLostError) throw err;
+  return fallbackAnswer();
+}
+```
+
+Swallowing them lets the handler carry on, so a paused run can complete with steps skipped.
 
 ## TypeScript notes
 
