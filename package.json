@@ -1,0 +1,16 @@
+{
+  "name": "keel",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Agent-native durable execution engine for TypeScript (working name)",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
+  }
+}
