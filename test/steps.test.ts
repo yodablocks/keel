@@ -52,3 +52,68 @@ test("completed steps are not re-executed when the run retries", async (t) => {
   assert.deepEqual(executions, { plan: 1, draft: 1, send: 2 });
   assert.equal(run.result, "sent: draft of intro+body #1");
 });
+
+test("using the same step name twice in a run fails it with a clear error", async (t) => {
+  let secondCalled = false;
+  const { engine, queue } = setup(t, {
+    loop: async (_payload, ctx) => {
+      await ctx.step.run("fetch", () => 1);
+      await ctx.step.run("fetch", () => {
+        secondCalled = true;
+        return 2;
+      });
+    },
+  });
+
+  const { id } = await engine.enqueue("loop", {}, { queue });
+  const run = await settled(engine, id);
+
+  assert.equal(run.status, "failed");
+  assert.equal(secondCalled, false);
+  assert.equal(run.errors[0]?.name, "DuplicateStepError");
+});
+
+test("a worker that lost its lease cannot store step results", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  const gate = () => {
+    let open!: () => void;
+    const opened = new Promise<void>((resolve) => (open = resolve));
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    return { open, opened, entered, reached };
+  };
+  const gateA = gate();
+  const gateB = gate();
+
+  const planBy = (name: string, g: ReturnType<typeof gate>) => async (_payload: unknown, ctx: import("../src/index.ts").TaskContext) =>
+    ctx.step.run("plan", async () => {
+      g.entered();
+      await g.opened;
+      return `plan by ${name}`;
+    });
+
+  const zombie = engine.createWorker({ queue, leaseMs: 60_000, tasks: { agent: planBy("A", gateA) } });
+  const owner = engine.createWorker({ queue, leaseMs: 60_000, tasks: { agent: planBy("B", gateB) } });
+  t.after(async () => {
+    await owner.stop();
+    await engine.close();
+  });
+
+  zombie.start();
+  const { id } = await engine.enqueue("agent", {}, { queue });
+  await gateA.reached;
+  await zombie.stop({ timeoutMs: 50 }); // releases the run; A's handler keeps running as a zombie
+
+  owner.start();
+  await gateB.reached;
+  gateA.open(); // the zombie finishes its step first
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  gateB.open();
+
+  const run = await waitFor(async () => {
+    const r = await engine.getRun(id);
+    return r?.status === "completed" && r;
+  }, 5000, "owner to complete the run");
+  assert.equal(run.result, "plan by B");
+});
