@@ -110,7 +110,11 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          updated_at = now()
        WHERE id = (
          SELECT id FROM runs
-         WHERE queue = $1 AND status = 'queued' AND run_after <= now()
+         WHERE queue = $1 AND (
+           (status = 'queued' AND run_after <= now())
+           -- Expired lease: the owning worker crashed or stalled, so the run is reclaimable.
+           OR (status = 'running' AND lease_expires < now())
+         )
          ORDER BY run_after
          LIMIT 1
          FOR UPDATE SKIP LOCKED
