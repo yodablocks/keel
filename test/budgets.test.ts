@@ -27,6 +27,11 @@ async function status(engine: ReturnType<typeof createEngine>, id: string, want:
 
 const cost = (usd: number, tokens: number) => ({ usage: () => ({ usd, tokens }) });
 
+// USD is a float sum and SQL does not fix the order it adds rows in, so compare to the cent.
+function assertUsd(actual: number, expected: number, message?: string) {
+  assert.ok(Math.abs(actual - expected) < 0.005, message ?? `expected $${expected}, got $${actual}`);
+}
+
 test("step usage adds up on the run and a retry does not count it twice", async (t) => {
   let attempts = 0;
   const { engine, queue } = setup(t, {
@@ -43,7 +48,8 @@ test("step usage adds up on the run and a retry does not count it twice", async 
   const run = await status(engine, id, "completed");
 
   assert.equal(run.attempt, 2);
-  assert.deepEqual(run.usage, { usd: 0.75, tokens: 4000 });
+  assertUsd(run.usage.usd, 0.75);
+  assert.equal(run.usage.tokens, 4000);
 });
 
 test("a run over its budget stops before the next step and escalates", async (t) => {
@@ -60,7 +66,7 @@ test("a run over its budget stops before the next step and escalates", async (t)
   const run = await status(engine, id, "failed");
 
   assert.deepEqual(called, ["research", "draft"], "the step after the budget was crossed never ran");
-  assert.equal(run.usage.usd, 1.2, "overshoot is at most one step");
+  assertUsd(run.usage.usd, 1.2, "overshoot is at most one step");
   assert.equal(run.errors[0]?.kind, "over_budget");
   assert.equal(run.errors[0]?.action.type, "escalate");
 });
@@ -86,4 +92,28 @@ test("a tenant at its daily budget has new runs deferred, not failed, until the 
   await engine.setTenantBudget(tenant, { usdPerDay: 10 });
   const run = await status(engine, deferred.id, "completed");
   assert.equal(run.attempt, 1);
+});
+
+test("a run whose tenant hits its limit mid-way pauses at the next step and resumes when allowed", async (t) => {
+  const calls = { a: 0, b: 0, c: 0 };
+  const { engine, queue, tenant } = setup(t, {
+    agent: async (_payload, ctx) => {
+      await ctx.step.run("a", () => calls.a++, cost(0.6, 0));
+      await ctx.step.run("b", () => calls.b++, cost(0.6, 0));
+      await ctx.step.run("c", () => calls.c++, cost(0.1, 0));
+      return "done";
+    },
+  });
+  await engine.setTenantBudget(tenant, { usdPerDay: 1 });
+
+  const { id } = await engine.enqueue("agent", {}, { queue, tenant });
+  await status(engine, id, "waiting");
+  assert.deepEqual(calls, { a: 1, b: 1, c: 0 });
+
+  await engine.setTenantBudget(tenant, { usdPerDay: 10 });
+  const run = await status(engine, id, "completed");
+
+  assert.deepEqual(calls, { a: 1, b: 1, c: 1 });
+  assert.equal(run.attempt, 1, "pausing for budget is not a failed attempt");
+  assertUsd(run.usage.usd, 1.3);
 });

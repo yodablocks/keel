@@ -100,9 +100,10 @@ export interface WaitApi {
  */
 export class RunSuspended extends Error {
   override name = "RunSuspended";
-  readonly waitName: string;
-  constructor(waitName: string) {
-    super(`Run suspended on wait "${waitName}"`);
+  /** The wait that suspended the run, or null when it was paused for another reason (tenant budget). */
+  readonly waitName: string | null;
+  constructor(waitName: string | null, reason?: string) {
+    super(reason ?? `Run suspended on wait "${waitName}"`);
     this.waitName = waitName;
   }
 }
@@ -402,7 +403,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       await pool.query(
         `UPDATE runs SET
            status = 'waiting',
-           run_after = (SELECT wake_at FROM waits WHERE run_id = $1 AND name = $3),
+           -- No wait (budget pause): due at once, and the claim query holds it until the tenant has budget.
+           run_after = coalesce((SELECT wake_at FROM waits WHERE run_id = $1 AND name = $3), now()),
            lease_owner = NULL, lease_expires = NULL, updated_at = now()
          WHERE id = $1 AND lease_owner = $2`,
         [run.id, id, error.waitName],
@@ -441,6 +443,15 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
         const over = overBudget(spent, run);
         if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
+        if (run.tenant !== null) {
+          const { rows: tenantRows } = await pool.query<{ over: boolean }>(
+            `SELECT ${TENANT_OVER_BUDGET} AS over FROM runs WHERE id = $1`,
+            [run.id],
+          );
+          if (tenantRows[0]?.over) {
+            throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
+          }
+        }
 
         const value = await fn();
         const usage = options.usage?.(value) ?? {};
