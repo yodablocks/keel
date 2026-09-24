@@ -144,3 +144,28 @@ test("a reviewer can raise a run's budget and approve its escalation so it finis
   assert.deepEqual(called, ["research", "draft", "polish"]);
   assertUsd(run.usage.usd, 1.8);
 });
+
+test("runs of a tenant over its daily budget are parked until the next UTC midnight, and released when the budget is raised", async (t) => {
+  const { engine, queue, tenant } = setup(t, {
+    agent: async (_payload, ctx) => {
+      await ctx.step.run("a", () => "a", cost(0.6, 0));
+      await ctx.step.run("b", () => "b", cost(0.6, 0));
+      return "done";
+    },
+  });
+  await engine.setTenantBudget(tenant, { usdPerDay: 1 });
+  const first = await engine.enqueue("agent", {}, { queue, tenant });
+  await status(engine, first.id, "completed");
+
+  const parked = await engine.enqueue("agent", {}, { queue, tenant });
+  const now = new Date();
+  const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  await waitFor(async () => {
+    const run = await engine.getRun(parked.id);
+    return run?.runAfter instanceof Date && run.runAfter.getTime() === nextMidnight;
+  }, 5000, "deferred run to be parked until the next UTC midnight");
+
+  await engine.setTenantBudget(tenant, { usdPerDay: 10 });
+  const run = await status(engine, parked.id, "completed");
+  assert.equal(run.attempt, 1);
+});

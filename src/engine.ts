@@ -19,6 +19,8 @@ export interface Run {
   errors: RunError[];
   /** Sum of usage reported by completed steps. */
   usage: Usage;
+  /** Earliest time the run can be claimed. Null when it only wakes on an event. */
+  runAfter: Date | null;
 }
 
 export interface Usage {
@@ -197,6 +199,11 @@ export interface WorkerOptions {
    * failing. Approval retries it once more with the reviewer's comment as ctx.hint. Defaults to 24 hours.
    */
   escalationTimeoutMs?: number;
+  /**
+   * How often the worker sweeps its queue: dead-letters runs whose final attempt lost its lease, and parks
+   * runs of over-budget tenants until the next UTC midnight. Defaults to 1000ms.
+   */
+  sweepEveryMs?: number;
   /** Periodically purges runs of this worker's queue that finished more than keepMs ago. */
   retention?: { keepMs: number; everyMs?: number };
 }
@@ -301,7 +308,7 @@ export function createEngine(options: EngineOptions): Engine {
 
     async getRun(id) {
       const { rows } = await pool.query(
-        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors,
+        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors, run_after,
                 (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
                 (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens
          FROM runs WHERE id = $1`,
@@ -320,6 +327,7 @@ export function createEngine(options: EngineOptions): Engine {
         lastError: row.last_error,
         errors: row.errors,
         usage: { usd: row.usage_usd, tokens: row.usage_tokens },
+        runAfter: row.run_after instanceof Date ? row.run_after : null,
       };
     },
 
@@ -329,6 +337,12 @@ export function createEngine(options: EngineOptions): Engine {
          ON CONFLICT (tenant) DO UPDATE
            SET usd_per_day = EXCLUDED.usd_per_day, tokens_per_day = EXCLUDED.tokens_per_day, updated_at = now()`,
         [tenant, budget.usdPerDay ?? null, budget.tokensPerDay ?? null],
+      );
+      // Release parked runs; the next maintenance sweep parks them again if the tenant is still over.
+      await pool.query(
+        `UPDATE runs SET run_after = deferred_run_after, deferred_run_after = NULL, updated_at = now()
+         WHERE tenant = $1 AND deferred_run_after IS NOT NULL`,
+        [tenant],
       );
     },
 
@@ -435,22 +449,9 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean; abort: AbortController } | undefined;
 
   async function claim(): Promise<ClaimedRun | undefined> {
-    // Poison pill guard: a run whose final attempt lost its lease goes dead instead of being claimed again.
-    await pool.query(
-      `UPDATE runs SET
-         status = 'dead',
-         last_error = ${LEASE_EXPIRED_ERROR},
-         errors = errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}),
-         lease_owner = NULL, lease_expires = NULL, updated_at = now()
-       WHERE id IN (
-         SELECT id FROM runs
-         WHERE queue = $1 AND status = 'running' AND lease_expires < now() AND attempt >= max_attempts
-         FOR UPDATE SKIP LOCKED
-       )`,
-      [queue],
-    );
     const { rows } = await pool.query<ClaimedRun>(
       `UPDATE runs SET
+         deferred_run_after = NULL,
          last_error = CASE WHEN status = 'running' THEN ${LEASE_EXPIRED_ERROR} ELSE last_error END,
          errors = CASE WHEN status = 'running' THEN errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}) ELSE errors END,
          status = 'running',
@@ -812,12 +813,50 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     );
   }
 
+  const sweepEveryMs = options.sweepEveryMs ?? 1000;
+  let lastSweep = 0;
   let lastPurge = 0;
   async function maintain(): Promise<void> {
+    if (Date.now() - lastSweep >= sweepEveryMs) {
+      lastSweep = Date.now();
+      await sweep();
+    }
     if (options.retention && Date.now() - lastPurge >= (options.retention.everyMs ?? 60 * 60 * 1000)) {
       lastPurge = Date.now();
       await purgeRuns(pool, { olderThan: new Date(Date.now() - options.retention.keepMs), queue });
     }
+  }
+
+  async function sweep(): Promise<void> {
+    // Poison pill guard: a run whose final attempt lost its lease goes dead instead of being claimed again.
+    // (The claim query already refuses such runs, so sweeping periodically is safe.)
+    await pool.query(
+      `UPDATE runs SET
+         status = 'dead',
+         last_error = ${LEASE_EXPIRED_ERROR},
+         errors = errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}),
+         lease_owner = NULL, lease_expires = NULL, updated_at = now()
+       WHERE id IN (
+         SELECT id FROM runs
+         WHERE queue = $1 AND status = 'running' AND lease_expires < now() AND attempt >= max_attempts
+         FOR UPDATE SKIP LOCKED
+       )`,
+      [queue],
+    );
+    // Park runs of over-budget tenants until the next UTC midnight, so claims skip them through the index.
+    await pool.query(
+      `UPDATE runs SET
+         deferred_run_after = run_after,
+         run_after = GREATEST(run_after, (date_trunc('day', now() AT TIME ZONE 'utc') + interval '1 day') AT TIME ZONE 'utc'),
+         updated_at = now()
+       WHERE id IN (
+         SELECT id FROM runs
+         WHERE queue = $1 AND status IN ('queued', 'waiting') AND tenant IS NOT NULL
+           AND deferred_run_after IS NULL AND ${TENANT_OVER_BUDGET}
+         FOR UPDATE SKIP LOCKED
+       )`,
+      [queue],
+    );
   }
 
   async function runLoop(): Promise<void> {
