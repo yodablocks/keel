@@ -21,6 +21,47 @@ export interface Run {
   usage: Usage;
   /** Earliest time the run can be claimed. Null when it only wakes on an event. */
   runAfter: Date | null;
+  tenant: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RunFilter {
+  queue?: string;
+  status?: RunStatus;
+  task?: string;
+  tenant?: string;
+  limit?: number;
+}
+
+export interface StepRecord {
+  name: string;
+  result: unknown;
+  usd: number;
+  tokens: number;
+  /** The attempt that completed the step. */
+  attempt: number;
+  completedAt: Date;
+}
+
+export interface WaitRecord {
+  name: string;
+  kind: "wait" | "approval" | "escalation";
+  eventName: string | null;
+  prompt: string | null;
+  /** pending; resolved (event or decision arrived); timed_out; elapsed (a finished wait.for timer). */
+  status: "pending" | "resolved" | "timed_out" | "elapsed";
+  /** The event payload or the reviewer's decision. */
+  payload: unknown;
+  createdAt: Date;
+  /** When a timer or timeout fires; null for waits without one. */
+  wakeAt: Date | null;
+}
+
+export interface RunDetail {
+  run: Run;
+  steps: StepRecord[];
+  waits: WaitRecord[];
 }
 
 export interface Usage {
@@ -252,6 +293,10 @@ export interface Worker {
 export interface Engine {
   enqueue(task: string, payload: unknown, opts?: EnqueueOptions): Promise<EnqueueResult>;
   getRun(id: string): Promise<Run | undefined>;
+  /** Runs matching every given filter, newest first. `limit` defaults to 50, at most 500. */
+  listRuns(filter?: RunFilter): Promise<Run[]>;
+  /** A run with its completed steps and its waits, approvals and escalations. */
+  getRunDetail(id: string): Promise<RunDetail | undefined>;
   /**
    * Sets a tenant's daily limits (UTC calendar day). Omitted limits are removed. While a tenant is at a
    * limit its runs are deferred: queued runs are not claimed and running runs pause at their next step.
@@ -265,7 +310,7 @@ export interface Engine {
   /** Sets a task's default per-run budget and daily limits. Omitted limits are removed. */
   setTaskBudget(task: string, budget: TaskBudget): Promise<void>;
   /** Approval requests that are still waiting for a decision, oldest first. */
-  listPendingApprovals(): Promise<Approval[]>;
+  listPendingApprovals(filter?: Omit<RunFilter, "status">): Promise<Approval[]>;
   /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
   resolveApproval(runId: string, name: string, decision: ApprovalDecision): Promise<{ resolved: boolean }>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
@@ -329,27 +374,55 @@ export function createEngine(options: EngineOptions): Engine {
     },
 
     async getRun(id) {
+      const { rows } = await pool.query(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = $1`, [id]);
+      return rows[0] ? toRun(rows[0]) : undefined;
+    },
+
+    async listRuns(filter = {}) {
+      const limit = Math.min(Math.max(filter.limit ?? 50, 1), 500);
       const { rows } = await pool.query(
-        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors, run_after,
-                (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
-                (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens
-         FROM runs WHERE id = $1`,
-        [id],
+        `SELECT ${RUN_COLUMNS} FROM runs
+         WHERE ($1::text IS NULL OR queue = $1) AND ($2::run_status IS NULL OR status = $2)
+           AND ($3::text IS NULL OR task = $3) AND ($4::text IS NULL OR tenant = $4)
+         ORDER BY created_at DESC, id DESC
+         LIMIT $5`,
+        [filter.queue ?? null, filter.status ?? null, filter.task ?? null, filter.tenant ?? null, limit],
       );
-      const row = rows[0];
-      if (!row) return undefined;
+      return rows.map(toRun);
+    },
+
+    async getRunDetail(id) {
+      const { rows } = await pool.query(`SELECT ${RUN_COLUMNS} FROM runs WHERE id = $1`, [id]);
+      if (!rows[0]) return undefined;
+      const [steps, waits] = await Promise.all([
+        pool.query(`SELECT name, result, usd, tokens, attempt, completed_at FROM steps WHERE run_id = $1 ORDER BY completed_at, name`, [id]),
+        pool.query(
+          `SELECT name, kind, event_name, prompt, payload, resolved_at, consumed_at, created_at,
+                  CASE WHEN wake_at = 'infinity' THEN NULL ELSE wake_at END AS wake_at
+           FROM waits WHERE run_id = $1 ORDER BY created_at, name`,
+          [id],
+        ),
+      ]);
       return {
-        id: row.id,
-        queue: row.queue,
-        task: row.task,
-        payload: row.payload,
-        status: row.status,
-        attempt: row.attempt,
-        result: row.result,
-        lastError: row.last_error,
-        errors: row.errors,
-        usage: { usd: row.usage_usd, tokens: row.usage_tokens },
-        runAfter: row.run_after instanceof Date ? row.run_after : null,
+        run: toRun(rows[0]),
+        steps: steps.rows.map((r) => ({
+          name: r.name,
+          result: r.result,
+          usd: r.usd,
+          tokens: r.tokens,
+          attempt: r.attempt,
+          completedAt: r.completed_at,
+        })),
+        waits: waits.rows.map((r) => ({
+          name: r.name,
+          kind: r.kind,
+          eventName: r.event_name,
+          prompt: r.prompt,
+          status: r.resolved_at ? "resolved" : r.consumed_at ? (r.kind === "wait" && !r.event_name ? "elapsed" : "timed_out") : "pending",
+          payload: r.payload,
+          createdAt: r.created_at,
+          wakeAt: r.wake_at,
+        })),
       };
     },
 
@@ -368,13 +441,16 @@ export function createEngine(options: EngineOptions): Engine {
       );
     },
 
-    async listPendingApprovals() {
+    async listPendingApprovals(filter = {}) {
       const { rows } = await pool.query(
         `SELECT w.run_id, w.name, r.task, w.prompt, w.created_at,
                 CASE WHEN w.wake_at = 'infinity' THEN NULL ELSE w.wake_at END AS expires_at
          FROM waits w JOIN runs r ON r.id = w.run_id
          WHERE w.kind IN ('approval', 'escalation') AND w.resolved_at IS NULL AND w.consumed_at IS NULL
-         ORDER BY w.created_at`,
+           AND ($1::text IS NULL OR r.queue = $1) AND ($2::text IS NULL OR r.task = $2) AND ($3::text IS NULL OR r.tenant = $3)
+         ORDER BY w.created_at
+         LIMIT $4`,
+        [filter.queue ?? null, filter.task ?? null, filter.tenant ?? null, Math.min(Math.max(filter.limit ?? 500, 1), 5000)],
       );
       return rows.map(toApproval);
     },
@@ -471,6 +547,29 @@ const RELEASED_ERROR = `jsonb_build_object(
   'kind', 'transient', 'confidence', 1,
   'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
   'at', to_jsonb(now()))`;
+
+const RUN_COLUMNS = `id, queue, task, tenant, payload, status, attempt, result, last_error, errors, run_after, created_at, updated_at,
+  (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
+  (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens`;
+
+function toRun(row: Record<string, any>): Run {
+  return {
+    id: row.id,
+    queue: row.queue,
+    task: row.task,
+    tenant: row.tenant,
+    payload: row.payload,
+    status: row.status,
+    attempt: row.attempt,
+    result: row.result,
+    lastError: row.last_error,
+    errors: row.errors,
+    usage: { usd: row.usage_usd, tokens: row.usage_tokens },
+    runAfter: row.run_after instanceof Date ? row.run_after : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 // Which step's function threw a given error. Keyed on the error object, so an error that a handler
 // catches and rethrows later still points at the step it came from.

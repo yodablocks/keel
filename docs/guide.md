@@ -11,6 +11,7 @@ Reference for every keel feature. For an overview, start with the [README](../RE
 - [Approvals and escalation](#approvals-and-escalation)
 - [Control-flow errors](#control-flow-errors)
 - [Operations: retention and sweeps](#operations-retention-and-sweeps)
+- [Inspecting runs and the dashboard](#inspecting-runs-and-the-dashboard)
 - [TypeScript notes](#typescript-notes)
 
 ## Tasks, workers and runs
@@ -276,6 +277,22 @@ engine.createWorker({
 - Every `sweepEveryMs`, a worker sweeps its queue: runs whose final attempt lost its lease go `dead`, and runs of tenants over their daily budget are parked until the next UTC midnight (`run.runAfter` shows when). Raising the tenant's budget releases them at once.
 - A worker stopped with `stop({ timeoutMs })` records a `Released` error on the run it gave up; that attempt counts toward `maxAttempts`.
 - A failure policy that throws or returns an invalid action fails the run, with `Policy error: ...` as the reason.
+
+## Inspecting runs and the dashboard
+
+```ts
+await engine.listRuns({ queue: "agents", status: "waiting", tenant: "acme", limit: 50 }); // newest first
+await engine.getRunDetail(runId); // { run, steps, waits }: results, costs, attempts, approvals and their decisions
+await engine.listPendingApprovals({ queue: "agents" }); // filters are optional
+```
+
+`pnpm dashboard [--port 4400] [--host 127.0.0.1]` serves the same data as HTML:
+
+- **Runs:** counts by status, pending approvals (newest first, scoped to the current filters), and a filterable run list. Refreshes every 5 seconds.
+- **Run logbook:** steps, failures (kind, confidence, action, step, status, output) and waits in time order, plus payload and result. A pending approval or escalation shows an Approve/Reject form; the page stops refreshing while a form is open.
+- **Security:** no login, so keep it on loopback. There is no JavaScript (the Content Security Policy forbids scripts), every value is HTML-escaped by a template that escapes by default, decisions need a per-process form token and a same-origin request, and on loopback requests for other hostnames are refused (DNS rebinding). Binding to another host prints a warning.
+
+To embed it in your own process: `const dashboard = await startDashboard({ engine, port: 4400 })`, then `dashboard.close()`.
 
 ## TypeScript notes
 
