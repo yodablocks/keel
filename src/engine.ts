@@ -284,11 +284,43 @@ export interface StopOptions {
   timeoutMs?: number;
 }
 
+export interface RunOnceOptions {
+  /** Stop after claiming this many runs. Defaults to no limit: run until the queue has nothing due. */
+  maxRuns?: number;
+  /**
+   * Time budget for the whole call, for example your function's timeout minus a little. When it nears, the
+   * current run is released and runOnce returns. Defaults to no deadline.
+   */
+  deadlineMs?: number;
+  /** Release the current run this long before the deadline, so the release is saved in time. Defaults to 1000ms. */
+  releaseMarginMs?: number;
+}
+
+export interface RunOnceResult {
+  claimed: number;
+  completed: number;
+  /** The handler threw; the failure policy then retried, failed, dead-lettered or escalated the run. */
+  failed: number;
+  /** The run is waiting (a wait, an approval, or a budget pause). */
+  suspended: number;
+  /** Released at the deadline. With progress (a step stored) it does not use up an attempt. */
+  yielded: number;
+  /** The lease was lost to another worker. */
+  lost: number;
+}
+
 export interface Worker {
   readonly id: string;
   start(): void;
   stop(options?: StopOptions): Promise<void>;
+  /**
+   * Claims and executes runs one at a time, then returns: for cron jobs and serverless functions, where no
+   * process lives long enough for start(). Cannot be used while the worker is started.
+   */
+  runOnce(options?: RunOnceOptions): Promise<RunOnceResult>;
 }
+
+type Outcome = "completed" | "failed" | "suspended" | "lost";
 
 export interface Engine {
   enqueue(task: string, payload: unknown, opts?: EnqueueOptions): Promise<EnqueueResult>;
@@ -571,6 +603,15 @@ function toRun(row: Record<string, any>): Run {
   };
 }
 
+interface InFlight {
+  run: ClaimedRun;
+  heartbeat: NodeJS.Timeout;
+  released: boolean;
+  abort: AbortController;
+  /** Steps stored during this attempt; a deadline yield with progress does not use up an attempt. */
+  progress: { steps: number };
+}
+
 // Which step's function threw a given error. Keyed on the error object, so an error that a handler
 // catches and rethrows later still points at the step it came from.
 const failedStepOf = new WeakMap<object, string>();
@@ -600,7 +641,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   const policy = options.policy ?? defaultPolicy();
   let running = false;
   let loop: Promise<void> | undefined;
-  let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean; abort: AbortController } | undefined;
+  let inFlight: InFlight | undefined;
+  let onceActive = false;
 
   async function claim(): Promise<ClaimedRun | undefined> {
     const { rows } = await pool.query<ClaimedRun>(
@@ -681,8 +723,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     return false;
   }
 
-  async function execute(run: ClaimedRun): Promise<void> {
-    if (!(await applyEscalationDecision(run))) return;
+  async function execute(run: ClaimedRun): Promise<Outcome> {
+    if (!(await applyEscalationDecision(run))) return "failed";
     const handler = options.tasks[run.task];
     const abort = new AbortController();
     const heartbeat = setInterval(() => {
@@ -703,7 +745,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         });
     }, heartbeatMs);
     heartbeat.unref();
-    const current = { run, heartbeat, released: false, abort };
+    const current: InFlight = { run, heartbeat, released: false, abort, progress: { steps: 0 } };
     inFlight = current;
     let result: unknown;
     let error: unknown;
@@ -715,7 +757,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
         ...(run.fallback !== null && { fallback: run.fallback }),
-        ...(await createContextApis(run, abort.signal)),
+        ...(await createContextApis(run, abort.signal, current.progress)),
         signal: abort.signal,
       });
     } catch (err) {
@@ -725,10 +767,10 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       clearInterval(heartbeat);
       inFlight = undefined;
     }
-    // Released during shutdown: another worker may own the run now.
-    if (current.released) return;
+    // Released during shutdown or at a deadline: another worker may own the run now.
+    if (current.released) return "lost";
     // Another worker owns the run now; anything this worker writes would be fenced out anyway.
-    if (error instanceof LeaseLostError) return;
+    if (error instanceof LeaseLostError) return "lost";
     if (error instanceof RunSuspended) {
       await pool.query(
         `UPDATE runs SET
@@ -739,22 +781,24 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          WHERE id = $1 AND lease_owner = $2`,
         [run.id, id, error.waitName],
       );
-      return;
+      return "suspended";
     }
     if (threw) {
       await recordFailure(run, error);
-      return;
+      return "failed";
     }
     await pool.query(
       `UPDATE runs SET status = 'completed', result = $3, lease_owner = NULL, lease_expires = NULL, updated_at = now()
        WHERE id = $1 AND lease_owner = $2`,
       [run.id, id, JSON.stringify(result ?? null)],
     );
+    return "completed";
   }
 
   async function createContextApis(
     run: ClaimedRun,
     signal: AbortSignal,
+    progress: { steps: number },
   ): Promise<{ step: StepApi; wait: WaitApi; approval: ApprovalApi }> {
     const { rows } = await pool.query<{ name: string; result: unknown; usd: number; tokens: number }>(
       `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
@@ -823,6 +867,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
         spent.usd += usage.usd ?? 0;
         spent.tokens += usage.tokens ?? 0;
+        progress.steps++;
         return JSON.parse(json) as T;
       },
     };
@@ -1057,6 +1102,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   return {
     id,
     start() {
+      if (onceActive) throw new Error("start cannot be used while runOnce is running");
       if (running) return;
       running = true;
       loop = runLoop();
@@ -1076,21 +1122,86 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       clearTimeout(timer);
       if (!outcome || !inFlight) return;
 
-      const stuck = inFlight;
-      stuck.released = true;
-      clearInterval(stuck.heartbeat);
-      stuck.abort.abort(new LeaseLostError(`Worker ${id} released run ${stuck.run.id} during shutdown`));
-      await pool.query(
-        `UPDATE runs SET
-           status = CASE WHEN attempt >= max_attempts THEN 'dead'::run_status ELSE 'queued'::run_status END,
-           last_error = ${RELEASED_ERROR},
-           errors = errors || jsonb_build_array(${RELEASED_ERROR}),
-           lease_owner = NULL, lease_expires = NULL, updated_at = now()
-         WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
-        [stuck.run.id, id],
-      );
+      await releaseRun(inFlight, "shutdown");
+    },
+
+    async runOnce(runOptions = {}) {
+      if (running) throw new Error("runOnce cannot be used while the worker is started; use one or the other");
+      if (onceActive) throw new Error("runOnce is already running on this worker");
+      onceActive = true;
+      try {
+        return await drain(runOptions);
+      } finally {
+        onceActive = false;
+      }
     },
   };
+
+  async function drain(runOptions: RunOnceOptions): Promise<RunOnceResult> {
+    const result: RunOnceResult = { claimed: 0, completed: 0, failed: 0, suspended: 0, yielded: 0, lost: 0 };
+    const maxRuns = runOptions.maxRuns ?? Number.POSITIVE_INFINITY;
+    const margin = runOptions.releaseMarginMs ?? 1000;
+    const releaseAt = runOptions.deadlineMs === undefined ? Number.POSITIVE_INFINITY : Date.now() + runOptions.deadlineMs - margin;
+
+    lastSweep = 0; // one maintenance pass per invocation
+    await maintain();
+    while (result.claimed < maxRuns && Date.now() < releaseAt) {
+      const run = await claim();
+      if (!run) break;
+      result.claimed++;
+      const execution = execute(run);
+      if (releaseAt === Number.POSITIVE_INFINITY) {
+        result[await execution]++;
+        continue;
+      }
+      let timer: NodeJS.Timeout | undefined;
+      const deadline = new Promise<"deadline">((resolve) => {
+        timer = setTimeout(() => resolve("deadline"), Math.max(0, releaseAt - Date.now()));
+      });
+      const outcome = await Promise.race([execution, deadline]);
+      clearTimeout(timer);
+      if (outcome !== "deadline") {
+        result[outcome]++;
+        continue;
+      }
+      if (!inFlight) {
+        // The handler already returned and its result is being saved: let that finish.
+        result[await execution]++;
+        break;
+      }
+      await releaseRun(inFlight, "deadline");
+      execution.catch(() => {}); // the abandoned handler may still settle later
+      result.yielded++;
+      break;
+    }
+    return result;
+  }
+
+  // Gives up the in-flight run. A shutdown release counts as an attempt (M10). A deadline release with
+  // progress is a pause, so it does not; without progress it counts, or a step longer than any deadline
+  // would yield forever.
+  async function releaseRun(current: InFlight, reason: "shutdown" | "deadline"): Promise<void> {
+    current.released = true;
+    clearInterval(current.heartbeat);
+    current.abort.abort(new LeaseLostError(`Worker ${id} released run ${current.run.id} (${reason})`));
+    if (reason === "deadline" && current.progress.steps > 0) {
+      await pool.query(
+        `UPDATE runs SET status = 'queued', attempt = attempt - 1, lease_owner = NULL, lease_expires = NULL, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
+        [current.run.id, id],
+      );
+      return;
+    }
+    await pool.query(
+      `UPDATE runs SET
+         status = CASE WHEN attempt >= max_attempts THEN 'dead'::run_status ELSE 'queued'::run_status END,
+         last_error = ${RELEASED_ERROR},
+         errors = errors || jsonb_build_array(${RELEASED_ERROR}),
+         lease_owner = NULL, lease_expires = NULL, updated_at = now()
+       WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
+      [current.run.id, id],
+    );
+  }
 }
 
 async function purgeRuns(pool: pg.Pool, { olderThan, queue }: PurgeOptions): Promise<{ runs: number }> {
