@@ -4,7 +4,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { defaultPolicy, RuleClassifier } from "./failure.ts";
 import type { FailureAction, FailureClassifier, FailureContext, FailureKind, FailurePolicy, FailureVerdict } from "./failure.ts";
 
-export type RunStatus = "queued" | "running" | "completed" | "failed" | "dead";
+export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "dead";
 
 export interface Run {
   id: string;
@@ -61,6 +61,31 @@ export interface StepApi {
   run<T>(name: string, fn: () => T | Promise<T>): Promise<T>;
 }
 
+export type EventWaitResult = { timedOut: false; payload: unknown } | { timedOut: true };
+
+export interface WaitApi {
+  /** Suspends the run for ms. The worker is freed; the run resumes by replay after the delay. */
+  for(name: string, ms: number): Promise<void>;
+  /**
+   * Suspends the run until engine.sendEvent(eventName) or the timeout. Only events sent after the
+   * wait is registered count. Put an id in the event name to target one run, e.g. `approved:${orderId}`.
+   */
+  forEvent(name: string, eventName: string, options?: { timeoutMs?: number }): Promise<EventWaitResult>;
+}
+
+/**
+ * Thrown by ctx.wait to suspend the run. If you catch errors around a wait, rethrow this one,
+ * or the run will not suspend.
+ */
+export class RunSuspended extends Error {
+  override name = "RunSuspended";
+  readonly waitName: string;
+  constructor(waitName: string) {
+    super(`Run suspended on wait "${waitName}"`);
+    this.waitName = waitName;
+  }
+}
+
 /** Thrown by ctx.step.run when the same step name is used twice in one attempt. */
 export class DuplicateStepError extends Error {
   override name = "DuplicateStepError";
@@ -78,6 +103,7 @@ export interface TaskContext {
   /** Set when the previous attempt failed and the policy chose retry_modified. */
   hint?: string;
   step: StepApi;
+  wait: WaitApi;
 }
 
 export type TaskHandler = (payload: unknown, ctx: TaskContext) => Promise<unknown>;
@@ -110,6 +136,8 @@ export interface Worker {
 export interface Engine {
   enqueue(task: string, payload: unknown, opts?: EnqueueOptions): Promise<EnqueueResult>;
   getRun(id: string): Promise<Run | undefined>;
+  /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
+  sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
   createWorker(options: WorkerOptions): Worker;
   close(): Promise<void>;
 }
@@ -174,6 +202,15 @@ export function createEngine(options: EngineOptions): Engine {
       };
     },
 
+    async sendEvent(eventName, payload) {
+      const { rowCount } = await pool.query(
+        `UPDATE waits SET resolved_at = now(), payload = $2
+         WHERE event_name = $1 AND resolved_at IS NULL AND consumed_at IS NULL`,
+        [eventName, JSON.stringify(payload ?? null)],
+      );
+      return { resolved: rowCount ?? 0 };
+    },
+
     createWorker(workerOptions) {
       return createWorker(pool, workerOptions);
     },
@@ -234,7 +271,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          last_error = CASE WHEN status = 'running' THEN ${LEASE_EXPIRED_ERROR} ELSE last_error END,
          errors = CASE WHEN status = 'running' THEN errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}) ELSE errors END,
          status = 'running',
-         attempt = attempt + 1,
+         -- Resuming from a wait continues the same attempt.
+         attempt = attempt + CASE WHEN status = 'waiting' THEN 0 ELSE 1 END,
          lease_owner = $2,
          lease_expires = now() + make_interval(secs => $3::double precision / 1000),
          updated_at = now()
@@ -244,6 +282,11 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
            (status = 'queued' AND run_after <= now())
            -- Expired lease: the owning worker crashed or stalled, so the run is reclaimable.
            OR (status = 'running' AND lease_expires < now() AND attempt < max_attempts)
+           -- Waiting: the timer is due, or the event already arrived (checked here so no wakeup is lost).
+           OR (status = 'waiting' AND (
+             run_after <= now()
+             OR EXISTS (SELECT 1 FROM waits w WHERE w.run_id = runs.id AND w.resolved_at IS NOT NULL AND w.consumed_at IS NULL)
+           ))
          )
          ORDER BY run_after
          LIMIT 1
@@ -280,7 +323,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         runId: run.id,
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
-        step: await createStepApi(run),
+        ...(await createContextApis(run)),
       });
     } catch (err) {
       threw = true;
@@ -293,6 +336,17 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     if (current.released) return;
     // Another worker owns the run now; anything this worker writes would be fenced out anyway.
     if (error instanceof LeaseLostError) return;
+    if (error instanceof RunSuspended) {
+      await pool.query(
+        `UPDATE runs SET
+           status = 'waiting',
+           run_after = (SELECT wake_at FROM waits WHERE run_id = $1 AND name = $3),
+           lease_owner = NULL, lease_expires = NULL, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2`,
+        [run.id, id, error.waitName],
+      );
+      return;
+    }
     if (threw) {
       await recordFailure(run, error);
       return;
@@ -304,7 +358,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     );
   }
 
-  async function createStepApi(run: ClaimedRun): Promise<StepApi> {
+  async function createContextApis(run: ClaimedRun): Promise<{ step: StepApi; wait: WaitApi }> {
     const { rows } = await pool.query<{ name: string; result: unknown }>(
       `SELECT name, result FROM steps WHERE run_id = $1`,
       [run.id],
@@ -312,7 +366,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     const stored = new Map(rows.map((r) => [r.name, r.result]));
     const seen = new Set<string>();
 
-    return {
+    const step: StepApi = {
       async run<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
         if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
         seen.add(name);
@@ -331,6 +385,42 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         return JSON.parse(json) as T;
       },
     };
+
+    // Registers the wait on first call and suspends. On replay, returns the outcome once it is final:
+    // consuming the row decides between "event arrived" and "timed out" atomically.
+    async function awaitWait(name: string, eventName: string | null, timeoutMs: number | undefined): Promise<EventWaitResult> {
+      if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
+      seen.add(name);
+
+      await pool.query(
+        `INSERT INTO waits (run_id, name, event_name, wake_at)
+         VALUES ($1, $2, $3, CASE WHEN $4::double precision IS NULL THEN 'infinity'::timestamptz
+                                  ELSE now() + make_interval(secs => $4::double precision / 1000) END)
+         ON CONFLICT (run_id, name) DO NOTHING`,
+        [run.id, name, eventName, timeoutMs ?? null],
+      );
+      const { rows } = await pool.query<{ resolved: boolean; payload: unknown }>(
+        `UPDATE waits SET consumed_at = coalesce(consumed_at, now())
+         WHERE run_id = $1 AND name = $2
+           AND (consumed_at IS NOT NULL OR resolved_at IS NOT NULL OR wake_at <= now())
+         RETURNING resolved_at IS NOT NULL AS resolved, payload`,
+        [run.id, name],
+      );
+      const outcome = rows[0];
+      if (!outcome) throw new RunSuspended(name);
+      return outcome.resolved ? { timedOut: false, payload: outcome.payload } : { timedOut: true };
+    }
+
+    const wait: WaitApi = {
+      async for(name, ms) {
+        await awaitWait(name, null, ms);
+      },
+      forEvent(name, eventName, options = {}) {
+        return awaitWait(name, eventName, options.timeoutMs);
+      },
+    };
+
+    return { step, wait };
   }
 
   async function recordFailure(run: ClaimedRun, error: unknown): Promise<void> {
