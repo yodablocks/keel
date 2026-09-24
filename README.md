@@ -1,251 +1,171 @@
 # keel
 
-> Working name, not final.
+**A durable execution engine for AI agents, in TypeScript on Postgres.**
 
-An agent-native durable execution engine for TypeScript, backed by Postgres.
+keel runs background jobs and multi-step agent workflows so they survive crashes, retry intelligently, stay within budget, and hand off to a person when they should.
 
-Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A524-339933?logo=nodedotjs&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![Status](https://img.shields.io/badge/status-experimental-orange)
 
-Status: **all milestones (M0 to M9) done**: queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets, Jev classifier, safe side effects, approvals, and an end-to-end agent demo. See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+---
 
-## Demo
+## Why keel
+
+Most job engines treat an AI agent as just another long-running job: when a step fails, they retry it. Agents fail in ways that make blind retries wrong:
+
+- A **hallucinated tool call** won't fix itself on retry. The model needs to be told what it got wrong.
+- A **refund over an approval limit** shouldn't be retried at all. A person has to decide.
+- A **runaway agent** can burn through an LLM budget faster than any rate limit notices.
+
+keel works out *why* a step failed and acts on it. It treats tokens and dollars as a scheduling resource, and makes human approval a normal part of a workflow.
+
+## Features
+
+| | |
+|---|---|
+| **Durable steps** | `ctx.step.run()` stores each step's result. After a crash or retry, completed steps replay from storage instead of running again. |
+| **Failure classification** | Every failure is classified as `transient`, `bad_input`, `bad_output`, `needs_human`, `over_budget` or `fatal`, and a policy picks the action: back off, retry with a corrective hint, fail, or escalate. |
+| **Jev classifier** | An optional classifier that reads error *messages*, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model, with a rule-based fallback. |
+| **Budgets** | Per-run budgets stop a run before its next step. Tenant daily budgets defer runs instead of failing them. |
+| **Human in the loop** | Approvals inside workflows, and escalated failures that wait for a reviewer's decision. |
+| **Safe side effects** | Each step gets a stable idempotency key, so a step re-run after a crash can't charge a card twice. |
+| **Waits and events** | Durable sleeps and waits for external events that free the worker in the meantime. |
+| **Crash safety** | Postgres `SKIP LOCKED` claims, leases with heartbeats, fenced writes, and dead-lettering of runs that keep crashing their workers. |
+
+## Quick start
+
+Requires Node.js 24+, pnpm 10+ and Docker.
 
 ```sh
-pnpm db:up && pnpm db:migrate
-pnpm demo            # real Jev classifier, needs TYPESAFE_API_KEY in .env
-pnpm demo --offline  # no API key: a clearly labelled offline stand-in classifier
+git clone git@github.com:yodablocks/keel.git && cd keel
+pnpm install
+cp .env.example .env          # optionally add TYPESAFE_API_KEY for the Jev classifier
+pnpm db:up && pnpm db:migrate # Postgres 17 on localhost:5433
+pnpm demo --offline           # the end-to-end agent demo, no API key needed
 ```
 
-One agent run (research, plan, draft, send, follow-up) with a $0.125 budget, two worker processes, and a scripted fake model and tools that misbehave on cue. Recorded with real Jev in [docs/demo-transcript.txt](docs/demo-transcript.txt). What happens:
-
-1. **Hallucinated tool.** The model's plan calls `serch_web`, which does not exist. The handler throws a plain `Error`, with no keel error class. Jev reads the message and classifies it `bad_output` (0.96), so the policy retries with the error as `ctx.hint`, and the model's second plan uses `search_web`.
-2. **Crash mid-run.** The demo `SIGKILL`s worker A in the middle of the draft step. Worker B takes the run once A's lease expires. `research` and `plan` come back from storage: the transcript shows each model call exactly once across both workers. The lost attempt is recorded as `LeaseExpired`.
-3. **Rate limit.** The email API answers 429. Classified `transient`, the run backs off (about 3s) and the retry sends the email with the same idempotency key.
-4. **Over budget.** After sending, the run has spent $0.13 of $0.125. Before the follow-up step it stops with `OverBudgetError`, and the policy escalates it to a person instead of failing.
-5. **Human approval.** The demo plays the reviewer: it finds the pending escalation, raises the run's budget to $0.25 with `engine.setRunBudget`, and approves. The run finishes the follow-up step and completes after 5 attempts, $0.15 spent.
-
-`test/demo.test.ts` runs the offline demo on every `pnpm test` and checks each of these moments.
-
-## Requirements
-
-- Node 24+ (runs `.ts` files directly via type stripping)
-- pnpm 10+
-- Docker (for Postgres)
-
-## Setup
-
-```sh
-pnpm add pg
-pnpm add -D typescript @types/node @types/pg
-cp .env.example .env
-pnpm db:up
-pnpm db:migrate
-pnpm test
-pnpm typecheck
-```
-
-Postgres listens on `localhost:5433` to avoid clashing with a local install.
-
-## Usage
+## Example
 
 ```ts
-import { BadOutputError, createEngine, defaultPolicy } from "./src/index.ts";
+import { createEngine } from "./src/index.ts"; // not published to npm yet
 
 const engine = createEngine({ connectionString: process.env.DATABASE_URL! });
 
 const worker = engine.createWorker({
   queue: "agents",
-  policy: defaultPolicy({ baseMs: 1000, maxMs: 60_000 }),
   tasks: {
-    research: async (payload, ctx) => {
-      // ctx.attempt starts at 1. ctx.hint is set when the last attempt produced bad output.
-      const answer = await callModel(payload, ctx.hint);
-      if (!isValidToolCall(answer)) throw new BadOutputError(`unknown tool "${answer.tool}"`);
-      return answer;
+    refund: async ({ orderId, amount }, ctx) => {
+      const order = await ctx.step.run("load-order", () => orders.get(orderId));
+
+      if (amount > 500) {
+        const decision = await ctx.approval.request("manager-ok", {
+          prompt: `Refund $${amount} for order ${orderId}?`,
+          timeoutMs: 24 * 3600_000,
+        });
+        if (decision.status !== "approved") return decision.status;
+      }
+
+      return ctx.step.run("refund", ({ idempotencyKey }) =>
+        payments.refund(order.chargeId, amount, { idempotencyKey }),
+      );
     },
   },
 });
 worker.start();
 
-const { id } = await engine.enqueue("research", { topic: "durable execution" }, { queue: "agents", maxAttempts: 5 });
-const run = await engine.getRun(id); // status, attempt, result, errors[] (one entry per failed attempt)
-
-// Idempotency: while the key is live (default 24h), the same task and key return the existing run.
-const { id: chargeId, created } = await engine.enqueue("charge", { orderId: 42 }, { idempotencyKey: "order-42" });
+await engine.enqueue("refund", { orderId: 42, amount: 900 }, { queue: "agents", budget: { usd: 2 } });
 ```
 
-How failures are handled by default (`RuleClassifier` + `defaultPolicy`):
+If the worker crashes after `load-order`, another worker resumes the run without loading the order again. While the run waits for approval it holds no worker at all.
 
-| Failure | Kind | Action |
+See the **[guide](docs/guide.md)** for every feature: steps, waits, budgets, the classifier, approvals, and the rules that keep replay correct.
+
+## How it works
+
+Runs are rows in Postgres. Workers claim them with `FOR UPDATE SKIP LOCKED` and hold a lease that heartbeats extend. Completed steps, waits and usage are stored per run, so any worker can resume any run by replaying its handler.
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: enqueue
+    queued --> running: worker claims (lease)
+    running --> completed: handler returns
+    running --> queued: transient failure, backoff
+    running --> waiting: wait, approval, escalation, tenant over budget
+    waiting --> running: timer due, event, decision, budget allows
+    running --> running: lease expired, another worker resumes
+    running --> failed: policy stops (bad input, bug, rejected)
+    running --> dead: maxAttempts exhausted
+    completed --> [*]
+    failed --> [*]
+    dead --> [*]
+```
+
+When a handler throws, the error goes through a **classifier** (what kind of failure is this?) and then a **policy** (what should happen?):
+
+| Failure | Kind | Default action |
 |---|---|---|
-| HTTP 408/429/5xx, network timeouts and resets | transient | retry with exponential backoff and full jitter |
-| `BadOutputError` | bad_output | retry at once, with the error passed as `ctx.hint` |
-| HTTP 400/422, `ZodError`, `BadInputError` | bad_input | fail, no retry |
-| `NeedsHumanError` | needs_human | escalate to a person (see [Approvals and escalation](#approvals-and-escalation)) |
-| anything else | fatal | fail, no retry |
-| worker crashed or lost its lease | transient | retry, recorded as `LeaseExpired` |
+| HTTP 408/429/5xx, timeouts, connection resets | `transient` | retry with exponential backoff and full jitter |
+| Model output that can't be used (invalid JSON, unknown tool) | `bad_output` | retry at once, with the error passed to the handler as `ctx.hint` |
+| Invalid input (HTTP 400/422, validation errors) | `bad_input` | fail |
+| Approval limits, refusals, missing permissions | `needs_human` | escalate to a reviewer |
+| Run over its budget | `over_budget` | escalate to a reviewer |
+| Anything else | `fatal` | fail |
 
-Statuses: `failed` means the policy chose not to retry. `dead` means `maxAttempts` ran out. Pass your own `classifier` or `policy` to `createWorker` to change any of this.
+## Demo
 
-## Durable steps
+`pnpm demo` runs one agent (research, plan, draft, send, follow-up) across two worker processes, with a scripted fake model and tools that misbehave on cue. In a single run:
 
-```ts
-tasks: {
-  agent: async (payload, ctx) => {
-    const plan = await ctx.step.run("plan", () => callModel(payload));
-    const draft = await ctx.step.run("draft", () => writeDraft(plan));
-    return ctx.step.run("send", () => sendEmail(draft));
-  },
-}
+1. **Hallucinated tool.** The model calls `serch_web`. Jev classifies the plain error as `bad_output` (confidence 0.96), and the retry's hint fixes the plan.
+2. **Crash.** Worker A is `SIGKILL`ed mid-draft. Worker B resumes, and the earlier steps are replayed from storage, not called again.
+3. **Rate limit.** The email API returns 429. The run backs off and retries with the same idempotency key.
+4. **Over budget.** The run has spent $0.13 of its $0.125 budget, so it escalates instead of failing.
+5. **Approval.** A reviewer raises the budget and approves, and the run completes.
+
+The full recording, made with real Jev, is in [docs/demo-transcript.txt](docs/demo-transcript.txt). `pnpm test` runs the offline version and checks every moment.
+
+## Failure classification: rules vs Jev
+
+`pnpm eval:classifier` on 30 hand-labelled agent failures (`jev-latest`, September 2026):
+
+| Classifier | Accuracy |
+|---|---|
+| Rules only (status codes, error codes, error classes) | 14 / 30 (47%) |
+| Jev | 29 / 30 (97%) |
+| keel cascade (rules for explicit signals, Jev for the rest, rules below 0.5 confidence) | 29 / 30 (97%) |
+
+Rules can only read status and error codes; Jev also reads the message. The single miss is a genuinely ambiguous tool-argument error.
+
+**Caveat:** the eval set is synthetic, and it was written and labelled by the same author as the classifier prompt. It shows the mechanism works, not how it will perform on your production failures. Full results are in [`eval-results/`](eval-results/).
+
+## Status and limitations
+
+keel is an **experimental project**, and the name is not final. All planned milestones are implemented and tested ([PLAN.md](PLAN.md)), but it hasn't been used in production. Known limitations include:
+
+- Budgets can overshoot by one step, because a step's cost is known only after it runs.
+- Idempotency keys protect external calls only for services that accept them.
+- Steps, idempotency keys and spend records are never cleaned up; there is no retention job yet.
+- A single Postgres instance is the throughput ceiling (thousands of jobs per second).
+- There is no dashboard. Run state is available through `getRun` and SQL.
+
+The full list is under Known risks in [PLAN.md](PLAN.md#known-risks).
+
+## Development
+
+```sh
+pnpm test        # node:test against the real Postgres from docker-compose (no database mocks)
+pnpm typecheck   # tsc --noEmit
+pnpm db:migrate  # applies db/migrations/*.sql in order
 ```
 
-If the run retries or its worker crashes during `send`, the next attempt gets `plan` and `draft` from storage without calling them again.
+Node runs the TypeScript sources directly, so there is no build step. Tests include real crash recovery: worker processes are killed with `SIGKILL` mid-run.
 
-Rules that keep replay correct:
-
-- **Put every non-deterministic call inside a step**: LLM calls, API calls, `Date.now()`, `Math.random()`. Code between steps runs again on every attempt, so it must produce the same step sequence each time.
-- **Step names must be unique within a run.** In loops, include the index: `` ctx.step.run(`fetch-${i}`, ...) ``. A repeated name throws `DuplicateStepError`.
-- **Results must be JSON-serializable.** They are JSON round-tripped on the first run too, so a `Date` is a string both times and `undefined` becomes `null`.
-- **A step that crashes before finishing runs again**, including its side effects. Make external calls idempotent where you can.
-
-## Waits
-
-```ts
-tasks: {
-  refund: async ({ orderId }, ctx) => {
-    await ctx.wait.for("cool-off", 60 * 60_000); // worker is freed for the hour
-    const approval = await ctx.wait.forEvent("approval", `approved:${orderId}`, { timeoutMs: 24 * 3600_000 });
-    if (approval.timedOut) return "expired";
-    return ctx.step.run("refund", () => issueRefund(orderId, approval.payload));
-  },
-}
-
-await engine.sendEvent("approved:42", { by: "alice" });
 ```
-
-- A waiting run has status `waiting` and holds no worker. It resumes by replay, so the durable step rules apply.
-- Events wake only waits that already exist. An event sent before the run reaches `forEvent` is not delivered; use a timeout.
-- Waits suspend the run by throwing `RunSuspended`. See [Control-flow errors](#control-flow-errors).
-
-## Budgets
-
-```ts
-await engine.setTenantBudget("acme", { usdPerDay: 50 });
-await engine.enqueue("agent", payload, { tenant: "acme", budget: { usd: 2 } });
-
-tasks: {
-  agent: async (payload, ctx) => {
-    const answer = await ctx.step.run("llm", () => callModel(payload), {
-      usage: (r) => ({ usd: r.costUsd, tokens: r.totalTokens }),
-    });
-    // ...
-  },
-}
-
-(await engine.getRun(id)).usage; // { usd, tokens }
+src/          engine, failure classification, Jev classifier, migrations
+db/           SQL migrations
+test/         unit, integration and crash tests
+scripts/      demo, classifier eval, migrate
+docs/         guide and demo transcript
+PLAN.md       milestones, acceptance criteria, known risks
 ```
-
-- **Per-run budget:** checked before each new step. A run over its budget stops as `over_budget`, which the default policy escalates to a person.
-- **Tenant daily budget** (UTC day): the tenant's runs are deferred, not failed. Queued runs wait, and running runs pause as `waiting` at their next step. They continue the next day, or as soon as you raise the limit.
-- Budgets can overshoot by up to one step, because a step's cost is known only after it runs.
-
-## Jev failure classifier
-
-`JevClassifier` reads the error message, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model. keel does not depend on the SDK; you pass the client in.
-
-```ts
-import { TypeSafeClient } from "@typesafe-ai/sdk"; // reads TYPESAFE_API_KEY
-
-const worker = engine.createWorker({
-  queue: "agents",
-  classifier: new JevClassifier({ client: new TypeSafeClient(), minConfidence: 0.5 }),
-  tasks: { /* ... */ },
-});
-```
-
-It is a cascade:
-
-1. Explicit signals (keel error classes like `BadOutputError`, `OverBudgetError`) are classified by rules. No API call.
-2. Everything else is one Jev Choice question over `transient / bad_input / bad_output / needs_human / fatal`, given the task, attempt, error (name, message, status, code, cause) and a truncated payload.
-3. If Jev's confidence is below `minConfidence`, or the call fails, the rule verdict is used. A TypeSafe outage never breaks failure handling.
-
-### Eval: rules vs Jev
-
-`pnpm eval:classifier` on 30 hand-labelled failures (`scripts/failure-cases.ts`), `jev-latest`, run 2026-09-24:
-
-| Classifier | Correct | Accuracy |
-|---|---|---|
-| `RuleClassifier` | 14 / 30 | 47% |
-| Jev, raw answer | 29 / 30 | 97% |
-| `JevClassifier` cascade (threshold 0.5) | 29 / 30 | 97% |
-
-- Rules get the cases with a status or error code right and call everything else `fatal`. Jev also classifies the ones whose meaning is only in the message: "Request timed out", invalid JSON from a model, a hallucinated tool name, a refund over an approval limit, a model refusal.
-- The one miss: "Tool call arguments failed validation: missing required property 'query'" (labelled `bad_output`). Jev said `bad_input` with confidence 0.38, below the threshold, so the cascade used the rule verdict (`fatal`), also wrong. The case is genuinely ambiguous without knowing who produced the arguments.
-- 3 of 30 answers were below the 0.5 threshold. The other two were `fatal` cases where rules agreed.
-- Cost: 30 calls, 19,613 input and 1,768 output tokens in total.
-- **Caveat:** the cases are synthetic and were written and labelled by the same author as the classifier question, and 16 of 30 carry their meaning only in the message text, where rules cannot win. This shows the mechanism works; measure it on your own production failures before relying on the numbers. Full results: `eval-results/classifier-2026-09-24T06-04-37.json`.
-
-## Side effects
-
-Every step function receives an idempotency key that is the same on every attempt and every worker:
-
-```ts
-await ctx.step.run("charge", ({ idempotencyKey, signal }) =>
-  stripe.paymentIntents.create({ amount: 90000, currency: "usd" }, { idempotencyKey }),
-);
-```
-
-If a worker crashes after the charge but before keel stores the result, the step runs again, with the same key, and the payment API returns the first charge instead of making a second. keel cannot tell whether the first call arrived, so this only protects services that accept idempotency keys.
-
-`ctx.signal` (also passed to steps) aborts when this worker no longer owns the run. Pass it to `fetch` and SDK calls.
-
-## Approvals and escalation
-
-```ts
-tasks: {
-  refund: async ({ orderId, amount }, ctx) => {
-    const decision = await ctx.approval.request("refund-ok", {
-      prompt: `Approve a refund of $${amount} for order ${orderId}?`,
-      timeoutMs: 24 * 3600_000,
-    });
-    if (decision.status !== "approved") return decision.status; // "rejected" or "timed_out"
-    return ctx.step.run("refund", ({ idempotencyKey }) => issueRefund(orderId, amount, idempotencyKey));
-  },
-}
-
-const worker = engine.createWorker({
-  queue: "payments",
-  tasks,
-  onApprovalRequested: (a) => slack.post(`#approvals`, `${a.prompt} (run ${a.runId})`),
-});
-
-// reviewer side
-const pending = await engine.listPendingApprovals();
-await engine.resolveApproval(runId, "refund-ok", { approved: true, by: "alice", comment: "VIP customer" });
-```
-
-**Escalation:** when the failure policy escalates (by default `NeedsHumanError` and `OverBudgetError`), the run waits for a person the same way, as an approval named `escalation-<attempt>`. Approving retries it once more, even past `maxAttempts`, with the reviewer's comment as `ctx.hint`. Rejecting it, or no answer within `escalationTimeoutMs` (default 24 hours), fails the run.
-
-## Control-flow errors
-
-`ctx.step.run` and `ctx.wait.*` can throw two errors that are signals to the engine, not failures:
-
-- `RunSuspended`: the run is pausing (a wait, or its tenant hit a budget mid-run)
-- `LeaseLostError`: another worker owns the run now
-
-If you catch errors around a step or a wait, rethrow these:
-
-```ts
-try {
-  return await ctx.step.run("llm", () => callModel(prompt));
-} catch (err) {
-  if (err instanceof RunSuspended || err instanceof LeaseLostError) throw err;
-  return fallbackAnswer();
-}
-```
-
-Swallowing them lets the handler carry on, so a paused run can complete with steps skipped.
-
-## TypeScript notes
-
-Code is run by Node without a build step, so it must use erasable syntax only: no `enum`, no `namespace`, no constructor parameter properties. Relative imports use the `.ts` extension. `tsc` is used for typechecking only.
