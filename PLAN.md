@@ -59,7 +59,7 @@ interface FailureClassifier {
 - Default `RuleClassifier`: HTTP 429/5xx and timeouts count as transient, schema validation errors as bad_input/bad_output, everything else as fatal
 - A `FailurePolicy` maps (kind, attempt, confidence) to a `FailureAction`
 - Statuses: `failed` means the policy chose not to retry. `dead` means retries ran out. The engine caps retries at `maxAttempts` even if a custom policy keeps asking to retry
-- Implemented actions: `retry`, `retry_modified` (hint reaches the handler as `ctx.hint`), `fail`. `escalate` and `fallback` currently fail the run with the reason recorded; M6 and M8 give them real destinations
+- Implemented actions: `retry`, `retry_modified` (hint reaches the handler as `ctx.hint`), `fail`, and since M8 `escalate` (routes to a person). `fallback` still fails the run with the target recorded
 
 **Acceptance:**
 - A handler that fails twice with a 503 then succeeds completes on attempt 3, with backoff delays in the expected range
@@ -127,13 +127,16 @@ interface FailureClassifier {
 
 ---
 
-## M8: Safe tool calls and human-in-the-loop
+## M8: Safe tool calls and human-in-the-loop (done)
 
-- `ctx.tool(name, fn, { sideEffect: true })` derives an idempotency key from (run_id, step, args) and passes it to the tool, so replays never double-charge or double-send
-- `ctx.approval.request({ channel, prompt, timeout })` pauses the run (built on M5 waits) until approved, rejected, or timed out
-- The `escalate` action from M2 routes into the same approval mechanism
+- No separate `ctx.tool`: `ctx.step.run` passes `{ idempotencyKey, signal }` to its function. The key is `keel:<runId>:<stepName>`, identical across attempts and workers. Keyed on the step name, not the arguments, because arguments can differ between replays
+- `ctx.signal` aborts when the worker releases the run (`stop({ timeoutMs })`) or a heartbeat finds another worker took it
+- `ctx.approval.request(name, { prompt, timeoutMs })` pauses the run (built on M5 waits) and returns `approved`, `rejected` or `timed_out` with the reviewer and comment. `engine.listPendingApprovals()` and `engine.resolveApproval()` are the reviewer side; `onApprovalRequested` fires once per request for Slack or email
+- The `escalate` action parks the run as an escalation approval. Approval retries it once more (even past `maxAttempts`) with the reviewer's comment as `ctx.hint`; rejection or `escalationTimeoutMs` (default 24h) fails it
 
 **Acceptance:** a run that crashes right after a side-effecting tool call replays without calling the tool again. An approval that times out follows the configured policy.
+
+**How it was met:** keel cannot know whether a call that crashed mid-step reached the service, so the step does run again, with the same idempotency key. The test uses a payment service that deduplicates by key, like Stripe: two calls, one charge. Services without idempotency keys are still at risk.
 
 ---
 
@@ -159,6 +162,9 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 
 ## Known risks
 
+- `onApprovalRequested` fires after the approval is stored; if the worker crashes between the two, nobody is notified (the approval still shows in `listPendingApprovals`). Poll the list as a backstop.
+- Every claim runs one extra query to check for a decided escalation.
+
 - The M7 eval set is synthetic and labelled by the classifier's author. Replace it with real production failures before trusting the accuracy numbers or tuning `minConfidence`.
 - Jev adds one API round trip to each failure that has no explicit signal, and costs roughly 650 input tokens per call on the eval set.
 
@@ -174,15 +180,15 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 - Claiming waiting runs uses an `EXISTS` check per waiting run. Fine for thousands of waiting runs per queue; revisit with a wake-up queue beyond that.
 
 - The `steps` table is never cleaned up. Add retention (for example delete steps of runs completed more than N days ago) alongside the idempotency key purge.
-- Only step *results* are durable. Side effects inside a step that crashes before its result is stored will run again on replay. M8's tool-call idempotency keys address this for external calls.
+- Only step *results* are durable. Side effects inside a step that crashes before its result is stored will run again on replay. M8's step idempotency keys make this safe for services that accept them.
 
 - Expired idempotency keys are never cleaned up, so `idempotency_keys` grows by one row per distinct key. Add a periodic purge of rows past `expires_at` before production use.
 
-- `stop({ timeoutMs })` requeues a released run without checking `maxAttempts` and without an error entry, so a run released on its final attempt gets one extra execution. Fix together with the AbortSignal item below.
+- `stop({ timeoutMs })` requeues a released run without checking `maxAttempts` and without an error entry, so a run released on its final attempt gets one extra execution. Still open.
 - Each idle poll now runs two queries (poison-pill sweep, then claim). Fine at 50ms polling for a few workers; revisit if idle load matters (for example sweep every N polls).
 - A custom policy that throws, or returns an invalid `delayMs`, leaves the run `running` until its lease expires. It then recovers through the `LeaseExpired` path, but slowly. Classifier errors are already caught; policy errors are not.
 
-- After `stop({ timeoutMs })` releases a run, the abandoned handler keeps running in memory while another worker runs the same run. Handlers should get an `AbortSignal` that fires on release. This must be solved by M8, when tool calls have side effects.
+- After `stop({ timeoutMs })` releases a run, the abandoned handler keeps running until it notices `ctx.signal` (M8). Handlers that ignore the signal still overlap with the new owner; their step writes are fenced, but their side effects are only safe if they use the step's idempotency key.
 - Incumbents (Trigger.dev, Inngest, Temporal) are adding agent features quickly. Keel's edge is focus on M2, M6, and M7, not breadth.
 - Postgres-as-queue has a throughput ceiling (roughly thousands of jobs/sec). Fine for the target use; say so in the README.
 - M7's value depends on Jev beating rules on real failure data. If it doesn't, that is a finding worth publishing, not hiding.
