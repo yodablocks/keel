@@ -6,7 +6,7 @@ An agent-native durable execution engine for TypeScript, backed by Postgres.
 
 Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
 
-Status: **M3 done** (queue with leases, retries, failure classification, idempotency keys). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+Status: **M4 done** (queue with leases, retries, failure classification, idempotency keys, durable steps). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
 
 ## Requirements
 
@@ -68,6 +68,27 @@ How failures are handled by default (`RuleClassifier` + `defaultPolicy`):
 | worker crashed or lost its lease | transient | retry, recorded as `LeaseExpired` |
 
 Statuses: `failed` means the policy chose not to retry. `dead` means `maxAttempts` ran out. Pass your own `classifier` or `policy` to `createWorker` to change any of this.
+
+## Durable steps
+
+```ts
+tasks: {
+  agent: async (payload, ctx) => {
+    const plan = await ctx.step.run("plan", () => callModel(payload));
+    const draft = await ctx.step.run("draft", () => writeDraft(plan));
+    return ctx.step.run("send", () => sendEmail(draft));
+  },
+}
+```
+
+If the run retries or its worker crashes during `send`, the next attempt gets `plan` and `draft` from storage without calling them again.
+
+Rules that keep replay correct:
+
+- **Put every non-deterministic call inside a step**: LLM calls, API calls, `Date.now()`, `Math.random()`. Code between steps runs again on every attempt, so it must produce the same step sequence each time.
+- **Step names must be unique within a run.** In loops, include the index: `` ctx.step.run(`fetch-${i}`, ...) ``. A repeated name throws `DuplicateStepError`.
+- **Results must be JSON-serializable.** They are JSON round-tripped on the first run too, so a `Date` is a string both times and `undefined` becomes `null`.
+- **A step that crashes before finishing runs again**, including its side effects. Make external calls idempotent where you can.
 
 ## TypeScript notes
 
