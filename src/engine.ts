@@ -1,7 +1,7 @@
 import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import { defaultPolicy, RuleClassifier } from "./failure.ts";
+import { defaultPolicy, OverBudgetError, RuleClassifier } from "./failure.ts";
 import type { FailureAction, FailureClassifier, FailureContext, FailureKind, FailurePolicy, FailureVerdict } from "./failure.ts";
 
 export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "dead";
@@ -56,6 +56,10 @@ export interface EnqueueOptions {
   idempotencyKey?: string;
   /** How long the key stays live. Defaults to 24 hours. */
   idempotencyTtlMs?: number;
+  /** Groups runs for tenant budgets (engine.setTenantBudget). */
+  tenant?: string;
+  /** Checked before each new step. One step can overshoot it, since cost is known only after a step runs. */
+  budget?: Partial<Usage>;
 }
 
 export interface EnqueueResult {
@@ -159,10 +163,19 @@ export function createEngine(options: EngineOptions): Engine {
 
   return {
     async enqueue(task, payload, opts = {}) {
-      const values = [opts.queue ?? "default", task, JSON.stringify(payload ?? {}), opts.maxAttempts ?? 3];
+      const values = [
+        opts.queue ?? "default",
+        task,
+        JSON.stringify(payload ?? {}),
+        opts.maxAttempts ?? 3,
+        opts.tenant ?? null,
+        opts.budget?.usd ?? null,
+        opts.budget?.tokens ?? null,
+      ];
       if (opts.idempotencyKey === undefined) {
         const { rows } = await pool.query<{ id: string }>(
-          `INSERT INTO runs (queue, task, payload, max_attempts) VALUES ($1, $2, $3, $4) RETURNING id`,
+          `INSERT INTO runs (queue, task, payload, max_attempts, tenant, budget_usd, budget_tokens)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
           values,
         );
         return { id: rows[0]!.id, created: true };
@@ -174,14 +187,14 @@ export function createEngine(options: EngineOptions): Engine {
       const { rows } = await pool.query<{ id: string }>(
         `WITH taken AS (
            INSERT INTO idempotency_keys (task, key, run_id, expires_at)
-           VALUES ($2, $5, gen_random_uuid(), now() + make_interval(secs => $6::double precision / 1000))
+           VALUES ($2, $8, gen_random_uuid(), now() + make_interval(secs => $9::double precision / 1000))
            ON CONFLICT (task, key) DO UPDATE
              SET run_id = EXCLUDED.run_id, expires_at = EXCLUDED.expires_at
              WHERE idempotency_keys.expires_at <= now()
            RETURNING run_id
          )
-         INSERT INTO runs (id, queue, task, payload, max_attempts)
-         SELECT run_id, $1, $2, $3, $4 FROM taken
+         INSERT INTO runs (id, queue, task, payload, max_attempts, tenant, budget_usd, budget_tokens)
+         SELECT run_id, $1, $2, $3, $4, $5, $6, $7 FROM taken
          RETURNING id`,
         [...values, opts.idempotencyKey, ttlMs],
       );
@@ -253,6 +266,9 @@ interface ClaimedRun {
   attempt: number;
   max_attempts: number;
   hint: string | null;
+  tenant: string | null;
+  budget_usd: number | null;
+  budget_tokens: number | null;
 }
 
 function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
@@ -308,7 +324,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, task, payload, attempt, max_attempts, hint`,
+       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, budget_usd, budget_tokens`,
       [queue, id, leaseMs],
     );
     return rows[0];
@@ -375,11 +391,16 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   }
 
   async function createContextApis(run: ClaimedRun): Promise<{ step: StepApi; wait: WaitApi }> {
-    const { rows } = await pool.query<{ name: string; result: unknown }>(
-      `SELECT name, result FROM steps WHERE run_id = $1`,
+    const { rows } = await pool.query<{ name: string; result: unknown; usd: number; tokens: number }>(
+      `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
       [run.id],
     );
     const stored = new Map(rows.map((r) => [r.name, r.result]));
+    // Only the lease holder adds steps, so in-memory totals stay exact for this attempt.
+    const spent: Usage = {
+      usd: rows.reduce((sum, r) => sum + r.usd, 0),
+      tokens: rows.reduce((sum, r) => sum + r.tokens, 0),
+    };
     const seen = new Set<string>();
 
     const step: StepApi = {
@@ -387,6 +408,9 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
         seen.add(name);
         if (stored.has(name)) return stored.get(name) as T;
+
+        const over = overBudget(spent, run);
+        if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
 
         const value = await fn();
         const usage = options.usage?.(value) ?? {};
@@ -400,6 +424,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
           [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0],
         );
         if (rowCount === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
+        spent.usd += usage.usd ?? 0;
+        spent.tokens += usage.tokens ?? 0;
         return JSON.parse(json) as T;
       },
     };
@@ -522,6 +548,12 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       );
     },
   };
+}
+
+function overBudget(spent: Usage, run: ClaimedRun): string | undefined {
+  if (run.budget_usd !== null && spent.usd >= run.budget_usd) return `$${spent.usd} of its $${run.budget_usd} budget`;
+  if (run.budget_tokens !== null && spent.tokens >= run.budget_tokens) return `${spent.tokens} of its ${run.budget_tokens} token budget`;
+  return undefined;
 }
 
 function serializeError(err: unknown): { name: string; message: string } {

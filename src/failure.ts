@@ -1,4 +1,4 @@
-export type FailureKind = "transient" | "bad_input" | "bad_output" | "needs_human" | "fatal";
+export type FailureKind = "transient" | "bad_input" | "bad_output" | "needs_human" | "over_budget" | "fatal";
 
 export interface FailureContext {
   error: unknown;
@@ -34,6 +34,11 @@ export class NeedsHumanError extends Error {
   override name = "NeedsHumanError";
 }
 
+/** Thrown by ctx.step.run before a new step when the run has spent its budget. */
+export class OverBudgetError extends Error {
+  override name = "OverBudgetError";
+}
+
 const TRANSIENT_CODES = new Set(["ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EPIPE", "EAI_AGAIN", "UND_ERR_SOCKET"]);
 const TRANSIENT_NAMES = new Set(["TimeoutError"]);
 const VALIDATION_NAMES = new Set(["ZodError", "ValidationError"]);
@@ -44,6 +49,7 @@ export class RuleClassifier implements FailureClassifier {
     if (error instanceof BadInputError) return { kind: "bad_input", confidence: 1 };
     if (error instanceof BadOutputError) return { kind: "bad_output", confidence: 1 };
     if (error instanceof NeedsHumanError) return { kind: "needs_human", confidence: 1 };
+    if (error instanceof OverBudgetError) return { kind: "over_budget", confidence: 1 };
     if (!(error instanceof Error)) return { kind: "fatal", confidence: 0.5 };
 
     const { status, statusCode, code } = error as Error & { status?: unknown; statusCode?: unknown; code?: unknown };
@@ -85,7 +91,7 @@ export interface DefaultPolicyOptions {
 
 /**
  * Transient failures retry with exponential backoff and full jitter. Bad output retries at once
- * with the error as a hint. Bad input and fatal errors fail. Needs-human escalates.
+ * with the error as a hint. Bad input and fatal errors fail. Needs-human and over-budget escalate.
  */
 export function defaultPolicy(options: DefaultPolicyOptions = {}): FailurePolicy {
   const baseMs = options.baseMs ?? 1000;
@@ -102,6 +108,7 @@ export function defaultPolicy(options: DefaultPolicyOptions = {}): FailurePolicy
       case "bad_output":
         return { type: "retry_modified", hint: `The previous attempt produced unusable output: ${message}` };
       case "needs_human":
+      case "over_budget":
         return { type: "escalate", reason: message };
       case "bad_input":
       case "fatal":
