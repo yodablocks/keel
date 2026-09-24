@@ -17,6 +17,18 @@ export interface Run {
   lastError: RunError | null;
   /** One entry per failed attempt, oldest first. */
   errors: RunError[];
+  /** Sum of usage reported by completed steps. */
+  usage: Usage;
+}
+
+export interface Usage {
+  usd: number;
+  tokens: number;
+}
+
+export interface StepOptions<T> {
+  /** Reports what the step cost. Stored with the step result, so replays never count it twice. */
+  usage?: (result: T) => Partial<Usage>;
 }
 
 export interface RunError {
@@ -58,7 +70,7 @@ export interface StepApi {
    * result without calling fn. Results are JSON round-tripped, on the first run too, so a Date comes
    * back as a string either way. Names must be unique within a run.
    */
-  run<T>(name: string, fn: () => T | Promise<T>): Promise<T>;
+  run<T>(name: string, fn: () => T | Promise<T>, options?: StepOptions<T>): Promise<T>;
 }
 
 export type EventWaitResult = { timedOut: false; payload: unknown } | { timedOut: true };
@@ -184,7 +196,10 @@ export function createEngine(options: EngineOptions): Engine {
 
     async getRun(id) {
       const { rows } = await pool.query(
-        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors FROM runs WHERE id = $1`,
+        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors,
+                (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
+                (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens
+         FROM runs WHERE id = $1`,
         [id],
       );
       const row = rows[0];
@@ -199,6 +214,7 @@ export function createEngine(options: EngineOptions): Engine {
         result: row.result,
         lastError: row.last_error,
         errors: row.errors,
+        usage: { usd: row.usage_usd, tokens: row.usage_tokens },
       };
     },
 
@@ -367,19 +383,21 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     const seen = new Set<string>();
 
     const step: StepApi = {
-      async run<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+      async run<T>(name: string, fn: () => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
         if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
         seen.add(name);
         if (stored.has(name)) return stored.get(name) as T;
 
-        const json = JSON.stringify((await fn()) ?? null);
+        const value = await fn();
+        const usage = options.usage?.(value) ?? {};
+        const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
         const { rowCount } = await pool.query(
-          `INSERT INTO steps (run_id, name, result, attempt)
-           SELECT $1, $2, $3::jsonb, $4
+          `INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
+           SELECT $1, $2, $3::jsonb, $4, $6, $7
            WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
            ON CONFLICT (run_id, name) DO NOTHING`,
-          [run.id, name, json, run.attempt, id],
+          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0],
         );
         if (rowCount === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
         return JSON.parse(json) as T;
