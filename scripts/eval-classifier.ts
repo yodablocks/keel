@@ -1,13 +1,33 @@
-// Compares RuleClassifier, raw Jev, and the JevClassifier cascade on the labelled cases.
-// Needs @typesafe-ai/sdk and TYPESAFE_API_KEY. Makes one Jev call per case.
+// Compares RuleClassifier with the JevClassifier cascade, with and without step context (M11).
+// Needs @typesafe-ai/sdk and TYPESAFE_API_KEY. Makes up to two Jev calls per case.
+// Usage: pnpm eval:classifier                  (the synthetic fixture in scripts/failure-cases.ts)
+//        pnpm eval:classifier --cases file.json (a labelled file from pnpm eval:export)
 import { writeFile, mkdir } from "node:fs/promises";
+import { parseArgs } from "node:util";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { JevClassifier, RuleClassifier } from "../src/index.ts";
 import type { FailureContext, FailureKind, SystemOneClient } from "../src/index.ts";
 import { FAILURE_CASES } from "./failure-cases.ts";
+import { loadCases } from "./eval-cases.ts";
+import type { FailureCase } from "./eval-cases.ts";
+
+const { values } = parseArgs({ options: { cases: { type: "string" } } });
+let cases: FailureCase[] = FAILURE_CASES;
+let source = "scripts/failure-cases.ts (synthetic)";
+if (values.cases !== undefined) {
+  const loaded = await loadCases(values.cases);
+  cases = loaded.cases;
+  source = values.cases;
+  if (loaded.skipped > 0) console.log(`Skipped ${loaded.skipped} unlabelled cases in ${values.cases}.`);
+}
+if (cases.length === 0) {
+  console.log("No labelled cases to evaluate.");
+  process.exit(0);
+}
 
 const sdk = new TypeSafeClient();
-const rawAnswers: Array<{ choice?: string; confidence?: number }> = [];
+let lastAnswer: { choice?: string; confidence?: number } | undefined;
+let calls = 0;
 let inputTokens = 0;
 let outputTokens = 0;
 
@@ -15,9 +35,10 @@ let outputTokens = 0;
 const recording: SystemOneClient = {
   async systemOne(request) {
     const response = await sdk.systemOne(request as Parameters<typeof sdk.systemOne>[0]);
+    calls++;
     inputTokens += response.usage.input_tokens;
     outputTokens += response.usage.output_tokens;
-    rawAnswers.push((response.answers.failure_kind ?? {}) as { choice?: string; confidence?: number });
+    lastAnswer = (response.answers.failure_kind ?? {}) as { choice?: string; confidence?: number };
     return response;
   },
 };
@@ -26,55 +47,76 @@ const MIN_CONFIDENCE = 0.5;
 const rules = new RuleClassifier();
 const cascade = new JevClassifier({ client: recording, minConfidence: MIN_CONFIDENCE });
 
-interface Row {
-  task: string;
-  message: string;
-  label: FailureKind;
-  rules: FailureKind;
+interface Variant {
   jev: string | null;
   jevConfidence: number | null;
   cascade: FailureKind;
 }
 
+async function run(ctx: FailureContext): Promise<Variant> {
+  lastAnswer = undefined;
+  const verdict = await cascade.classify(ctx);
+  return { jev: lastAnswer?.choice ?? null, jevConfidence: lastAnswer?.confidence ?? null, cascade: verdict.kind };
+}
+
+interface Row {
+  task: string;
+  step: string | null;
+  message: string;
+  label: FailureKind;
+  rules: FailureKind;
+  withoutContext: Variant;
+  withContext: Variant;
+}
+
 const rows: Row[] = [];
-for (const c of FAILURE_CASES) {
-  const ctx: FailureContext = { error: c.error, task: c.task, payload: {}, attempt: 1, maxAttempts: 3 };
-  const byRules = await rules.classify(ctx);
-  const before = rawAnswers.length;
-  const byCascade = await cascade.classify(ctx);
-  const raw = rawAnswers.length > before ? rawAnswers[rawAnswers.length - 1]! : undefined;
+for (const c of cases) {
+  const base: FailureContext = { error: c.error, task: c.task, payload: {}, attempt: 1, maxAttempts: 3 };
+  const withContext: FailureContext = {
+    ...base,
+    ...(c.step !== undefined && { step: c.step }),
+    ...(c.output !== undefined && { output: c.output }),
+  };
   rows.push({
     task: c.task,
+    step: c.step ?? null,
     message: c.error instanceof Error ? c.error.message : String(c.error),
     label: c.label,
-    rules: byRules.kind,
-    jev: raw?.choice ?? null,
-    jevConfidence: raw?.confidence ?? null,
-    cascade: byCascade.kind,
+    rules: (await rules.classify(base)).kind,
+    withoutContext: await run(base),
+    withContext: await run(withContext),
   });
 }
 
 const n = rows.length;
-const accuracy = (pick: (r: Row) => string | null) => rows.filter((r) => pick(r) === r.label).length;
+const correct = (pick: (r: Row) => string | null) => rows.filter((r) => pick(r) === r.label).length;
+const below = (pick: (r: Row) => number | null) => rows.filter((r) => (pick(r) ?? 1) < MIN_CONFIDENCE).length;
 const summary = {
+  source,
   cases: n,
-  rules: accuracy((r) => r.rules),
-  jevRaw: accuracy((r) => r.jev),
-  cascade: accuracy((r) => r.cascade),
-  jevCalls: rawAnswers.length,
-  // Jev answers below the threshold, whether or not the rule verdict happened to agree.
-  belowThreshold: rows.filter((r) => r.jevConfidence !== null && r.jevConfidence < MIN_CONFIDENCE).length,
+  rules: correct((r) => r.rules),
+  withoutContext: { jevRaw: correct((r) => r.withoutContext.jev), cascade: correct((r) => r.withoutContext.cascade), belowThreshold: below((r) => r.withoutContext.jevConfidence) },
+  withContext: { jevRaw: correct((r) => r.withContext.jev), cascade: correct((r) => r.withContext.cascade), belowThreshold: below((r) => r.withContext.jevConfidence) },
+  jevCalls: calls,
   tokens: { input: inputTokens, output: outputTokens },
 };
 
-console.log(`Cases: ${n}`);
-console.log(`Rules:          ${summary.rules}/${n} (${Math.round((summary.rules / n) * 100)}%)`);
-console.log(`Jev (raw):      ${summary.jevRaw}/${n} (${Math.round((summary.jevRaw / n) * 100)}%)`);
-console.log(`Cascade:        ${summary.cascade}/${n} (${Math.round((summary.cascade / n) * 100)}%)`);
-console.log(`Jev calls: ${summary.jevCalls}, below ${MIN_CONFIDENCE} confidence (rules used): ${summary.belowThreshold}, tokens: ${inputTokens} in / ${outputTokens} out`);
-console.log("\nMisclassified by the cascade:");
-for (const r of rows.filter((r) => r.cascade !== r.label)) {
-  console.log(`  [${r.label} -> ${r.cascade}] (jev: ${r.jev} @ ${r.jevConfidence?.toFixed(2)}) ${r.message}`);
+const pct = (k: number) => `${k}/${n} (${Math.round((k / n) * 100)}%)`;
+console.log(`Cases: ${n} from ${source}`);
+console.log(`Rules:                          ${pct(summary.rules)}`);
+console.log(`Jev raw, without step context:  ${pct(summary.withoutContext.jevRaw)}`);
+console.log(`Cascade, without step context:  ${pct(summary.withoutContext.cascade)}  (${summary.withoutContext.belowThreshold} below ${MIN_CONFIDENCE})`);
+console.log(`Jev raw, with step context:     ${pct(summary.withContext.jevRaw)}`);
+console.log(`Cascade, with step context:     ${pct(summary.withContext.cascade)}  (${summary.withContext.belowThreshold} below ${MIN_CONFIDENCE})`);
+console.log(`Jev calls: ${calls}, tokens: ${inputTokens} in / ${outputTokens} out`);
+console.log("\nMisclassified by the cascade with step context:");
+for (const r of rows.filter((r) => r.withContext.cascade !== r.label)) {
+  console.log(`  [${r.label} -> ${r.withContext.cascade}] (jev: ${r.withContext.jev} @ ${r.withContext.jevConfidence?.toFixed(2)}) ${r.message}`);
+}
+console.log("\nChanged by step context:");
+for (const r of rows.filter((r) => r.withContext.cascade !== r.withoutContext.cascade)) {
+  const mark = r.withContext.cascade === r.label ? "fixed" : r.withoutContext.cascade === r.label ? "broke" : "changed";
+  console.log(`  ${mark}: [${r.label}] ${r.withoutContext.cascade} -> ${r.withContext.cascade} (step ${r.step}) ${r.message}`);
 }
 
 await mkdir("eval-results", { recursive: true });
