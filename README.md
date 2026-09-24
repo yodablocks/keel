@@ -4,6 +4,7 @@
 
 keel runs background jobs and multi-step agent workflows so they survive crashes, retry intelligently, stay within budget, and hand off to a person when they should.
 
+[![CI](https://github.com/yodablocks/keel/actions/workflows/ci.yml/badge.svg)](https://github.com/yodablocks/keel/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A524-339933?logo=nodedotjs&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
@@ -158,6 +159,8 @@ pnpm test        # node:test against the real Postgres from docker-compose (no d
 pnpm typecheck   # tsc --noEmit
 pnpm db:migrate  # applies db/migrations/*.sql in order
 ```
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the type check and the full test suite against Postgres 17 on every pull request and every push to `main`.
 
 Node runs the TypeScript sources directly, so there is no build step. Tests include real crash recovery: worker processes are killed with `SIGKILL` mid-run.
 
