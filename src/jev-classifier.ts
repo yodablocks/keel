@@ -33,9 +33,15 @@ const FAILURE_KIND_QUESTION = {
  * keel itself does not depend on the SDK.
  */
 export interface SystemOneClient {
+  // Answers are left loose: the SDK types them as a union of Choice, Noul and Score responses.
   systemOne(request: { state: unknown; questions: Record<string, unknown> }): PromiseLike<{
-    answers: Record<string, { choice?: string; probabilities?: Record<string, number>; confidence?: number }>;
+    answers: Readonly<Record<string, unknown>>;
   }>;
+}
+
+interface ChoiceAnswer {
+  choice?: unknown;
+  confidence?: unknown;
 }
 
 export interface JevClassifierOptions {
@@ -67,20 +73,20 @@ export class JevClassifier implements FailureClassifier {
     const byRules = await this.#rules.classify(ctx);
     if (byRules.confidence >= 1) return byRules;
 
-    let answer;
+    let answer: ChoiceAnswer | undefined;
     try {
       const response = await this.#client.systemOne({
         state: describeFailure(ctx),
         questions: { failure_kind: FAILURE_KIND_QUESTION },
       });
-      answer = response.answers.failure_kind;
+      answer = response.answers.failure_kind as ChoiceAnswer | undefined;
     } catch (err) {
       // A TypeSafe outage must not turn every failure into a classifier error.
       console.warn("[keel] Jev classification failed, using rules:", err);
       return byRules;
     }
-    if (!answer?.choice || !ASKED_KINDS.has(answer.choice)) return byRules;
-    const confidence = answer.confidence ?? 0;
+    if (typeof answer?.choice !== "string" || !ASKED_KINDS.has(answer.choice)) return byRules;
+    const confidence = typeof answer.confidence === "number" ? answer.confidence : 0;
     if (confidence < this.#minConfidence) return byRules;
     return { kind: answer.choice as FailureKind, confidence };
   }
