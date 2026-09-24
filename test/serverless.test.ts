@@ -42,3 +42,64 @@ test("a run with steps and a wait completes across several runOnce calls with no
   assert.equal(run?.result, "sent");
   assert.deepEqual(executed, ["research", "draft", "send"], "no step ran twice");
 });
+
+test("a deadline inside a step yields the run without using up an attempt, and the next call resumes it", async (t) => {
+  const executed: string[] = [];
+  const { engine, queue, worker } = setup(t, {
+    agent: async (_payload, ctx) => {
+      await ctx.step.run("fetch", () => executed.push("fetch"));
+      await ctx.step.run("summarize", async () => {
+        executed.push("summarize");
+        if (executed.filter((s) => s === "summarize").length === 1) await sleep(1000); // too slow the first time
+      });
+      await ctx.step.run("send", () => executed.push("send"));
+      return "sent";
+    },
+  });
+  const { id } = await engine.enqueue("agent", {}, { queue, maxAttempts: 1 });
+
+  const first = await worker.runOnce({ deadlineMs: 400, releaseMarginMs: 100 });
+  assert.deepEqual([first.claimed, first.yielded], [1, 1]);
+  const paused = await engine.getRun(id);
+  assert.equal(paused?.status, "queued");
+  assert.equal(paused?.attempt, 0, "the yield did not use up the only attempt");
+
+  const second = await worker.runOnce();
+  assert.equal(second.completed, 1);
+  const run = await engine.getRun(id);
+  assert.equal(run?.status, "completed");
+  assert.equal(run?.attempt, 1);
+  assert.deepEqual(executed, ["fetch", "summarize", "summarize", "send"], "fetch was not repeated; the interrupted step re-ran");
+});
+
+test("a step longer than any deadline uses up attempts instead of yielding forever", async (t) => {
+  const { engine, queue, worker } = setup(t, {
+    slow: async (_payload, ctx) => {
+      await ctx.step.run("too-long", () => sleep(1000));
+    },
+  });
+  const { id } = await engine.enqueue("slow", {}, { queue, maxAttempts: 2 });
+
+  for (let i = 0; i < 2; i++) await worker.runOnce({ deadlineMs: 300, releaseMarginMs: 100 });
+
+  const run = await engine.getRun(id);
+  assert.equal(run?.status, "dead");
+  assert.deepEqual(run?.errors.map((e) => e.name), ["Released", "Released"]);
+});
+
+test("runOnce claims at most maxRuns runs", async (t) => {
+  const { engine, queue, worker } = setup(t, { noop: async () => "done" });
+  for (let i = 0; i < 5; i++) await engine.enqueue("noop", {}, { queue });
+
+  const result = await worker.runOnce({ maxRuns: 2 });
+
+  assert.deepEqual([result.claimed, result.completed], [2, 2]);
+  assert.equal((await engine.listRuns({ queue, status: "queued" })).length, 3);
+});
+
+test("runOnce refuses to run on a started worker", async (t) => {
+  const { worker } = setup(t, {});
+  worker.start();
+  t.after(() => worker.stop());
+  await assert.rejects(worker.runOnce(), /cannot be used while the worker is started/);
+});
