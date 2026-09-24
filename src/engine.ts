@@ -139,7 +139,6 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
   async function execute(run: ClaimedRun): Promise<void> {
     const handler = options.tasks[run.task];
-    if (!handler) throw new Error(`No handler registered for task "${run.task}"`);
     const heartbeat = setInterval(() => {
       pool
         .query(
@@ -155,14 +154,28 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     const current = { run, heartbeat, released: false };
     inFlight = current;
     let result: unknown;
+    let error: unknown;
+    let threw = false;
     try {
+      if (!handler) throw new Error(`No handler registered for task "${run.task}"`);
       result = await handler(run.payload);
+    } catch (err) {
+      threw = true;
+      error = err;
     } finally {
       clearInterval(heartbeat);
       inFlight = undefined;
     }
     // Released during shutdown: another worker may own the run now.
     if (current.released) return;
+    if (threw) {
+      await pool.query(
+        `UPDATE runs SET status = 'failed', last_error = $3, lease_owner = NULL, lease_expires = NULL, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2`,
+        [run.id, id, JSON.stringify(serializeError(error))],
+      );
+      return;
+    }
     await pool.query(
       `UPDATE runs SET status = 'completed', result = $3, lease_owner = NULL, lease_expires = NULL, updated_at = now()
        WHERE id = $1 AND lease_owner = $2`,
@@ -172,9 +185,15 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
   async function runLoop(): Promise<void> {
     while (running) {
-      const run = await claim();
-      if (run) await execute(run);
-      else await sleep(pollMs);
+      try {
+        const run = await claim();
+        if (run) await execute(run);
+        else await sleep(pollMs);
+      } catch (err) {
+        // Usually a database hiccup. The lease protects any claimed run, so back off and keep going.
+        console.error(`[keel] ${id} loop error:`, err);
+        await sleep(pollMs);
+      }
     }
   }
 
@@ -210,4 +229,9 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       );
     },
   };
+}
+
+function serializeError(err: unknown): { name: string; message: string } {
+  if (err instanceof Error) return { name: err.name, message: err.message };
+  return { name: "NonError", message: String(err) };
 }

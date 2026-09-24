@@ -166,3 +166,36 @@ test("stop with a timeout releases a stuck run so another worker takes it withou
   }, 3000, "released run to be taken over");
   assert.equal(run.result, "taken over");
 });
+
+test("a handler that throws marks the run failed and the worker keeps going", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+
+  const worker = engine.createWorker({
+    queue,
+    tasks: {
+      explode: async () => {
+        throw new Error("boom");
+      },
+      fine: async () => "ok",
+    },
+  });
+  t.after(async () => {
+    await worker.stop();
+    await engine.close();
+  });
+
+  const bad = await engine.enqueue("explode", {}, { queue });
+  const good = await engine.enqueue("fine", {}, { queue });
+  worker.start();
+
+  const completed = await waitFor(async () => {
+    const r = await engine.getRun(good.id);
+    return r?.status === "completed" && r;
+  }, 5000, "run after the failing one to complete");
+  const failed = await engine.getRun(bad.id);
+
+  assert.equal(completed.result, "ok");
+  assert.equal(failed?.status, "failed");
+  assert.equal((failed?.lastError as { message: string }).message, "boom");
+});
