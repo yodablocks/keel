@@ -52,12 +52,32 @@ export interface EnqueueResult {
   created: boolean;
 }
 
+export interface StepApi {
+  /**
+   * Runs fn once per run. After it succeeds its result is stored, and later attempts get the stored
+   * result without calling fn. Results are JSON round-tripped, on the first run too, so a Date comes
+   * back as a string either way. Names must be unique within a run.
+   */
+  run<T>(name: string, fn: () => T | Promise<T>): Promise<T>;
+}
+
+/** Thrown by ctx.step.run when the same step name is used twice in one attempt. */
+export class DuplicateStepError extends Error {
+  override name = "DuplicateStepError";
+}
+
+/** Thrown by ctx.step.run when this worker no longer owns the run, so its results must not be stored. */
+export class LeaseLostError extends Error {
+  override name = "LeaseLostError";
+}
+
 export interface TaskContext {
   runId: string;
   /** Starts at 1. */
   attempt: number;
   /** Set when the previous attempt failed and the policy chose retry_modified. */
   hint?: string;
+  step: StepApi;
 }
 
 export type TaskHandler = (payload: unknown, ctx: TaskContext) => Promise<unknown>;
@@ -260,6 +280,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         runId: run.id,
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
+        step: await createStepApi(run),
       });
     } catch (err) {
       threw = true;
@@ -270,6 +291,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     }
     // Released during shutdown: another worker may own the run now.
     if (current.released) return;
+    // Another worker owns the run now; anything this worker writes would be fenced out anyway.
+    if (error instanceof LeaseLostError) return;
     if (threw) {
       await recordFailure(run, error);
       return;
@@ -279,6 +302,35 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
        WHERE id = $1 AND lease_owner = $2`,
       [run.id, id, JSON.stringify(result ?? null)],
     );
+  }
+
+  async function createStepApi(run: ClaimedRun): Promise<StepApi> {
+    const { rows } = await pool.query<{ name: string; result: unknown }>(
+      `SELECT name, result FROM steps WHERE run_id = $1`,
+      [run.id],
+    );
+    const stored = new Map(rows.map((r) => [r.name, r.result]));
+    const seen = new Set<string>();
+
+    return {
+      async run<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+        if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
+        seen.add(name);
+        if (stored.has(name)) return stored.get(name) as T;
+
+        const json = JSON.stringify((await fn()) ?? null);
+        // Fenced on the lease so a zombie worker cannot store results for a run it lost.
+        const { rowCount } = await pool.query(
+          `INSERT INTO steps (run_id, name, result, attempt)
+           SELECT $1, $2, $3::jsonb, $4
+           WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
+           ON CONFLICT (run_id, name) DO NOTHING`,
+          [run.id, name, json, run.attempt, id],
+        );
+        if (rowCount === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
+        return JSON.parse(json) as T;
+      },
+    };
   }
 
   async function recordFailure(run: ClaimedRun, error: unknown): Promise<void> {

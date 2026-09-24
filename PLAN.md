@@ -80,11 +80,13 @@ interface FailureClassifier {
 
 ---
 
-## M4: Durable steps
+## M4: Durable steps (done)
 
 - `ctx.step.run("name", fn)` stores the step result in a `steps` table keyed by (run_id, step_name)
 - On retry or recovery, completed steps return their stored result without re-executing
-- **Determinism caveat (document it in the README):** code *between* steps re-executes on replay. LLM calls must live inside `step.run` or replay will diverge. Detect and error on duplicate step names within a run.
+- **Determinism caveat (documented in the README):** code *between* steps re-executes on replay. LLM calls must live inside `step.run` or replay will diverge. Duplicate step names within a run throw `DuplicateStepError`.
+- Step results are JSON round-tripped on the first run too, so first run and replay see identical values
+- Step writes are fenced on the lease: a worker that lost the run gets `LeaseLostError` instead of storing its result
 
 **Acceptance:** a 3-step run that crashes during step 3 resumes and executes steps 1 and 2 zero additional times (counted with side-effect counters).
 
@@ -152,6 +154,9 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 - Horizontal sharding beyond what a single Postgres handles
 
 ## Known risks
+
+- The `steps` table is never cleaned up. Add retention (for example delete steps of runs completed more than N days ago) alongside the idempotency key purge.
+- Only step *results* are durable. Side effects inside a step that crashes before its result is stored will run again on replay. M8's tool-call idempotency keys address this for external calls.
 
 - Expired idempotency keys are never cleaned up, so `idempotency_keys` grows by one row per distinct key. Add a periodic purge of rows past `expires_at` before production use.
 
