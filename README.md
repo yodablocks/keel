@@ -151,7 +151,9 @@ keel is an **experimental project**, and the name is not final. All planned mile
 - A single Postgres instance is the throughput ceiling (thousands of jobs per second).
 - There is no dashboard. Run state is available through `getRun` and SQL.
 
-The full list is under Known risks in [PLAN.md](PLAN.md#known-risks).
+The full list is under [Known risks](PLAN.md#known-risks), each tagged with the milestone that addresses it.
+
+**Roadmap:** phase 2 (hardening, classification with step context, budget fallbacks, a dashboard, a serverless mode, a benchmark and packaging) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
 
 ## Development
 

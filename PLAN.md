@@ -1,4 +1,4 @@
-# Keel milestone plan
+# keel plan
 
 **Goal:** a small, correct, Postgres-backed durable execution engine in TypeScript, with an identity that existing engines lack: it understands *why* an agent step failed and acts on it, and it treats money (tokens, dollars) as a scheduling resource.
 
@@ -6,7 +6,18 @@
 
 **Ordering principle:** the differentiator (failure classification) arrives in M2, not at the end, so the project shows its identity early.
 
+## Status
+
+| Phase | Milestones | Status |
+|---|---|---|
+| 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
+| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging | Planned |
+
+See also [Non-goals](#non-goals) and [Known risks](#known-risks).
+
 ---
+
+# Phase 1: core engine (done)
 
 ## M0: Scaffold (done)
 
@@ -109,7 +120,7 @@ interface FailureClassifier {
 - Steps report usage (`ctx.step.run("llm", fn, { usage: (result) => ({ usd, tokens }) })`). Usage is stored with the step, so replays never count it twice, and tenant daily spend is updated in the same statement
 - Per-run budget: checked before each new step. Crossing it raises `OverBudgetError`, classified `over_budget`, which the default policy escalates. Completed steps stay stored
 - Tenant budget: runs are deferred, not failed. Queued runs are not claimed, and a running run pauses as `waiting` at its next step. Both continue once the budget allows (next UTC day or a raised limit). Pausing is not a new attempt
-- **Deferred:** per-task budgets and the "fallback to a cheaper model" action. Both fit the same seams (a task-level budget table, and `fallback` routing in the policy)
+- **Deferred:** per-task budgets and the "fallback to a cheaper model" action. Both fit the same seams (a task-level budget table, and `fallback` routing in the policy). Planned in [M12](#m12-budget-completeness)
 
 **Acceptance:** a tenant at its daily budget has further runs deferred, not failed. A run crossing its per-run budget mid-way stops at the next step boundary with its state preserved.
 
@@ -119,7 +130,7 @@ interface FailureClassifier {
 
 - `JevClassifier implements FailureClassifier` as a cascade: explicit signals stay on rules (no call), everything else is one Jev Choice question, and answers below `minConfidence` (default 0.5) or a failed call fall back to the `RuleClassifier`
 - State sent to Jev: task, attempt, error (name, message, status, code, cause) and the payload truncated to 2,000 characters
-- **Not yet sent:** the failing step's name and the model's raw output. `FailureContext` does not carry them; adding them would likely resolve cases like the one eval miss (tool-call arguments)
+- **Not yet sent:** the failing step's name and the model's raw output. `FailureContext` does not carry them; adding them would likely resolve cases like the one eval miss (tool-call arguments). Planned in [M11](#m11-classification-with-step-context)
 - keel has no runtime dependency on `@typesafe-ai/sdk`; `SystemOneClient` is a structural type, checked against the real client by `test/types/typesafe-client.ts`
 - **Result:** rules 14/30 (47%), Jev 29/30 (97%), cascade 29/30 (97%). Details and caveats in the README
 
@@ -155,42 +166,130 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 
 ---
 
-## Explicitly out of scope (for now)
+# Phase 2: production readiness (planned)
 
-- Process checkpoint/restore (CRIU) and serverless deployment
-- Dashboard UI (run history comes from SQL queries and structured logs)
-- Multi-language SDKs
-- Horizontal sharding beyond what a single Postgres handles
+Same rules as phase 1: acceptance tests first, real Postgres, one PR per milestone. New npm packages are named before they are installed and installed by the maintainer through `sfw`.
+
+## M10: Hardening
+
+Close the correctness bugs and unbounded growth found during phase 1.
+
+- A run released by `stop({ timeoutMs })` records a `Released` error entry and counts toward `maxAttempts`, instead of silently getting an extra execution
+- A policy that throws or returns an invalid `delayMs` fails the run at once, with the policy error recorded, instead of stranding it until the lease expires
+- Retention: `engine.purge({ olderThan })` removes steps, waits and usage of runs finished before the cutoff, expired idempotency keys, and old `tenant_spend` rows. An optional worker setting runs it periodically
+- Deferred runs of an over-budget tenant get a `deferred_until`, so the claim query stops re-evaluating them on every poll
+- The poison-pill sweep runs every N polls instead of before every claim
+
+**Acceptance:**
+- A run released on its final attempt ends `dead`, with the release in its error history
+- A throwing policy fails the run within one poll
+- `purge` removes only data of finished runs older than the cutoff; a running or waiting run still replays correctly afterwards
+- With 10,000 deferred runs for one over-budget tenant, claims for other tenants stay as fast as with none (measured, numbers in the PR)
+
+## M11: Classification with step context
+
+The one M7 eval miss was ambiguous because the classifier could not see which step failed or what the model produced.
+
+- `FailureContext` gains `step` (the name of the failing step, tracked by the engine) and `output` (the rejected model output, when the handler attaches it to the error)
+- `JevClassifier` sends both to Jev
+- `pnpm eval:export` turns real failures from the `runs.errors` history into the eval case format, ready for labelling, so the eval set can move from synthetic to real
+
+**Acceptance:**
+- A unit test shows the step name and output reach the classifier state
+- With step context, the eval classifies the tool-argument case correctly, and overall accuracy does not drop (numbers recorded in the README)
+- An exported file is accepted by `pnpm eval:classifier` unchanged
+
+## M12: Budget completeness
+
+The two budget features deferred in M6.
+
+- `fallback` action: the policy can answer `over_budget` (or any kind) with `{ type: "fallback", target }`, and the next attempt receives `ctx.fallback`, for example a cheaper model name. The default policy falls back when a worker has `fallbackModel` configured, and escalates otherwise
+- Per-task budgets: `engine.setTaskBudget(task, { usdPerRun, usdPerDay })`. A per-run default for runs enqueued without a budget, plus a daily limit that defers runs like a tenant budget does
+
+**Acceptance:**
+- An over-budget run with a fallback configured finishes on the cheaper model without a person
+- A task at its daily budget has further runs deferred, not failed, while other tasks keep running
+
+## M13: Dashboard
+
+A small web UI that makes run state and approvals visible without SQL.
+
+- Run list with filters (status, queue, task, tenant)
+- Run detail: steps with results and usage, error timeline with kind, confidence and action, current wait or approval
+- Pending approvals with Approve and Reject, calling `engine.resolveApproval`
+- Served by `pnpm dashboard` for local and internal use. No authentication in this milestone; the README must say not to expose it publicly
+- The stack is chosen at the start of the milestone, preferring as few new dependencies as possible
+
+**Acceptance:** an end-to-end test lists a run, shows its steps and errors, and approving an escalation from the UI resumes the run.
+
+## M14: Serverless mode
+
+Replay-based durability means any process can resume any run, so a long-lived worker is optional.
+
+- `worker.runOnce({ maxRuns, deadlineMs })`: claim up to `maxRuns` runs, execute each until it completes, suspends or the deadline nears, then release anything unfinished and return
+- Suits cron jobs and serverless functions (Lambda, Vercel, Cloudflare), where a process lives for seconds
+
+**Acceptance:**
+- A run with a wait and three steps completes across several `runOnce` calls with no long-lived worker
+- A deadline that falls inside a step releases the run cleanly, and the next call resumes it from the last stored step
+
+## M15: Benchmark and packaging
+
+- `pnpm bench`: enqueue-to-complete throughput and latency (p50, p99) for 1 to 32 workers on one Postgres, with the hardware noted. The numbers replace "roughly thousands of jobs per second" in the README
+- Packaging: a build step that emits JavaScript and type declarations to `dist/`, an `exports` map and a `files` list, so keel installs from git or a tarball. Publishing to npm stays a separate decision
+
+**Acceptance:**
+- Benchmark results are recorded in the README and reproducible with one command
+- A fresh project installs the `pnpm pack` tarball and runs a task with steps and a wait
+
+---
+
+## Non-goals
+
+These are deliberate design decisions, not gaps.
+
+- **Process checkpoint/restore (CRIU).** keel resumes runs by replaying the handler against stored steps, so any worker can continue any run without snapshotting a process. Checkpointing needs Linux kernel features and control over the container runtime, which is a platform's job, not an engine library's.
+- **Multi-language SDKs.** keel is TypeScript-only by design. Replay semantics live in the handler's language, so every additional SDK is a rewrite of the step, wait and approval runtime, and it splits focus away from what makes keel different.
+- **Horizontal sharding.** One Postgres database is the whole infrastructure, and that simplicity is the point. M15 measures the ceiling. Beyond it, run independent keel deployments per queue or per tenant group on separate databases, or choose an engine built for that scale.
 
 ## Known risks
 
-- `onApprovalRequested` fires after the approval is stored; if the worker crashes between the two, nobody is notified (the approval still shows in `listPendingApprovals`). Poll the list as a backstop.
-- Every claim runs one extra query to check for a decided escalation.
+Each risk is tagged with the milestone that addresses it, or **accepted** when it is a documented trade-off.
 
-- The M7 eval set is synthetic and labelled by the classifier's author. Replace it with real production failures before trusting the accuracy numbers or tuning `minConfidence`.
-- Jev adds one API round trip to each failure that has no explicit signal, and costs roughly 650 input tokens per call on the eval set.
+### Correctness
 
-- Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented.
-- USD is stored as double precision. Fine for budget limits; not suitable for billing or invoicing, which need integer cents or `numeric`.
-- Each new step of a tenant's run costs one extra query for the tenant budget check.
-- Deferred runs are rescanned on every claim: queued and paused runs of an over-budget tenant still match the claim's time condition, so each poll re-evaluates the tenant budget for every one of them before reaching a claimable run. A tenant with thousands of deferred runs slows every claim. Fix with a `deferred_until` column or a per-tenant skip list.
-- Tenant budget checks are not atomic across workers: several runs of one tenant can each pass the check and run a step at the same moment, so a tenant can overshoot by up to one step per concurrently running run.
-- `tenant_spend` keeps one row per tenant per day forever. Add it to the retention job with steps and idempotency keys.
+- A run released by `stop({ timeoutMs })` on its final attempt gets one extra execution, with no error entry. **M10**
+- A custom policy that throws, or returns an invalid `delayMs`, leaves the run `running` until its lease expires; it then recovers through the `LeaseExpired` path, slowly. Classifier errors are already caught. **M10**
+- A handler that wraps a step or wait in `try/catch` and swallows `RunSuspended` or `LeaseLostError` breaks suspension: a budget-paused run can complete with steps skipped. Documented in the guide; a lint rule or a non-Error signal could enforce it. **Accepted**
+- Parallel waits in one handler (`Promise.all` of two waits) are not supported: the run suspends on whichever throws first. **Accepted**
+- A released or superseded handler that ignores `ctx.signal` keeps running alongside the new owner. Its step writes are fenced, but its side effects are only safe if they use the step's idempotency key. **Accepted**
+- Only step *results* are durable. A step that crashes before its result is stored runs again, side effects included; idempotency keys make this safe only for services that accept them. **Accepted**
+- `onApprovalRequested` fires after the approval is stored; a crash between the two means nobody is notified, although the approval still appears in `listPendingApprovals`. Poll the list as a backstop. **Accepted**
 
-- A handler that wraps a wait or a step in `try/catch` and swallows `RunSuspended` or `LeaseLostError` breaks suspension: a budget-paused run can complete with steps skipped. Documented in the README; a lint rule or a non-Error signal could enforce it later.
-- Parallel waits in one handler (`Promise.all` of two waits) are not supported: the run suspends on whichever throws first.
-- Claiming waiting runs uses an `EXISTS` check per waiting run. Fine for thousands of waiting runs per queue; revisit with a wake-up queue beyond that.
+### Budgets
 
-- The `steps` table is never cleaned up. Add retention (for example delete steps of runs completed more than N days ago) alongside the idempotency key purge.
-- Only step *results* are durable. Side effects inside a step that crashes before its result is stored will run again on replay. M8's step idempotency keys make this safe for services that accept them.
+- Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented. **Accepted**
+- Tenant budget checks are not atomic across workers: each concurrently running run of a tenant can overshoot by one step. **Accepted**
+- USD is stored as double precision: fine for limits, not for billing, which needs integer cents or `numeric`. **Accepted**
 
-- Expired idempotency keys are never cleaned up, so `idempotency_keys` grows by one row per distinct key. Add a periodic purge of rows past `expires_at` before production use.
+### Performance
 
-- `stop({ timeoutMs })` requeues a released run without checking `maxAttempts` and without an error entry, so a run released on its final attempt gets one extra execution. Still open.
-- Each idle poll now runs two queries (poison-pill sweep, then claim). Fine at 50ms polling for a few workers; revisit if idle load matters (for example sweep every N polls).
-- A custom policy that throws, or returns an invalid `delayMs`, leaves the run `running` until its lease expires. It then recovers through the `LeaseExpired` path, but slowly. Classifier errors are already caught; policy errors are not.
+- Deferred runs of an over-budget tenant are re-evaluated on every claim; thousands of them slow every claim. **M10**
+- Each idle poll runs two queries (poison-pill sweep, then claim). **M10**
+- Extra queries per claim (decided escalations) and per new step of a tenant's run (tenant budget), and an `EXISTS` check per waiting run. Fine at the current scale. **Measured in M15**
+- One Postgres is the throughput ceiling. **Measured in M15; sharding is a non-goal**
 
-- After `stop({ timeoutMs })` releases a run, the abandoned handler keeps running until it notices `ctx.signal` (M8). Handlers that ignore the signal still overlap with the new owner; their step writes are fenced, but their side effects are only safe if they use the step's idempotency key.
-- Incumbents (Trigger.dev, Inngest, Temporal) are adding agent features quickly. Keel's edge is focus on M2, M6, and M7, not breadth.
-- Postgres-as-queue has a throughput ceiling (roughly thousands of jobs/sec). Fine for the target use; say so in the README.
-- M7's value depends on Jev beating rules on real failure data. If it doesn't, that is a finding worth publishing, not hiding.
+### Operations
+
+- Steps, waits, expired idempotency keys and `tenant_spend` rows are never cleaned up, so these tables grow without bound. **M10**
+- There is no UI; run state is available through `getRun` and SQL. **M13**
+
+### Classification
+
+- The M7 eval set is synthetic and labelled by the classifier's author. Its numbers show the mechanism works, not production accuracy. Replace it with real failures before tuning `minConfidence`. **M11**
+- Jev adds one API round trip to each failure without an explicit signal, about 650 input tokens per call on the eval set. **Accepted**
+
+### Strategy
+
+- Incumbents (Trigger.dev, Inngest, Temporal) are adding agent features quickly. keel's edge is depth in failure classification, budgets and human approval, not breadth.
+- If Jev does not beat rules on real failure data (M11), that is a finding worth publishing, not hiding.
