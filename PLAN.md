@@ -103,12 +103,13 @@ interface FailureClassifier {
 
 ---
 
-## M6: Token and cost budgets
+## M6: Token and cost budgets (done)
 
-- Budgets per run, per task, and per tenant (for example "$2 per run, $50 per tenant per day")
-- Steps report usage (`ctx.step.run("llm", fn, { reportUsage })`), and the engine accounts it
-- Budget exceeded counts as a `FailureKind` handled by the same policy (escalate, fallback to a cheaper model, or stop)
-- Concurrency limited by spend, not only by slot count
+- Per-run budgets (`enqueue(..., { budget: { usd, tokens } })`) and per-tenant daily budgets (`engine.setTenantBudget`, UTC calendar day)
+- Steps report usage (`ctx.step.run("llm", fn, { usage: (result) => ({ usd, tokens }) })`). Usage is stored with the step, so replays never count it twice, and tenant daily spend is updated in the same statement
+- Per-run budget: checked before each new step. Crossing it raises `OverBudgetError`, classified `over_budget`, which the default policy escalates. Completed steps stay stored
+- Tenant budget: runs are deferred, not failed. Queued runs are not claimed, and a running run pauses as `waiting` at its next step. Both continue once the budget allows (next UTC day or a raised limit). Pausing is not a new attempt
+- **Deferred:** per-task budgets and the "fallback to a cheaper model" action. Both fit the same seams (a task-level budget table, and `fallback` routing in the policy)
 
 **Acceptance:** a tenant at its daily budget has further runs deferred, not failed. A run crossing its per-run budget mid-way stops at the next step boundary with its state preserved.
 
@@ -155,6 +156,12 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 - Horizontal sharding beyond what a single Postgres handles
 
 ## Known risks
+
+- Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented.
+- USD is stored as double precision. Fine for budget limits; not suitable for billing or invoicing, which need integer cents or `numeric`.
+- Each new step of a tenant's run costs one extra query for the tenant budget check.
+- Tenant budget checks are not atomic across workers: several runs of one tenant can each pass the check and run a step at the same moment, so a tenant can overshoot by up to one step per concurrently running run.
+- `tenant_spend` keeps one row per tenant per day forever. Add it to the retention job with steps and idempotency keys.
 
 - A handler that wraps a wait in `try/catch` and swallows `RunSuspended` breaks suspension. Documented; a lint rule or a non-Error signal could enforce it later.
 - Parallel waits in one handler (`Promise.all` of two waits) are not supported: the run suspends on whichever throws first.
