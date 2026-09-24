@@ -6,3 +6,5 @@ export type { Engine, EngineOptions, EnqueueOptions, EnqueueResult, EventWaitRes
 export { migrate } from "./migrate.ts";
 export { BadInputError, BadOutputError, defaultPolicy, NeedsHumanError, OverBudgetError, RuleClassifier } from "./failure.ts";
 export type { DefaultPolicyOptions, FailureAction, FailureClassifier, FailureContext, FailureKind, FailurePolicy, FailureVerdict } from "./failure.ts";
+export { JevClassifier } from "./jev-classifier.ts";
+export type { JevClassifierOptions, SystemOneClient } from "./jev-classifier.ts";
