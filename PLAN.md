@@ -34,9 +34,9 @@
 
 ---
 
-## M2: Retries, dead-letter, and the `FailureClassifier` seam
+## M2: Retries, dead-letter, and the `FailureClassifier` seam (done)
 
-**First, before any schema change:** add a `pnpm db:migrate` script that applies `db/*.sql` in order and records what it applied. Docker only runs `db/schema.sql` on an empty volume, so new SQL files would otherwise never reach an existing database.
+**Migrations:** `pnpm db:migrate` applies `db/migrations/*.sql` in order and records them in `keel_migrations`. Tests run it first via `--test-global-setup`. Never edit an applied migration; add a new file.
 
 - Exponential backoff with full jitter via `run_after`
 - After `max_attempts`, run goes to `dead` with the error history kept
@@ -49,7 +49,7 @@ type FailureAction =
   | { type: "retry_modified"; hint: string }
   | { type: "fallback"; target: string }
   | { type: "escalate"; reason: string }
-  | { type: "dead" };
+  | { type: "fail"; reason?: string };
 
 interface FailureClassifier {
   classify(ctx: FailureContext): Promise<{ kind: FailureKind; confidence: number }>;
@@ -58,6 +58,8 @@ interface FailureClassifier {
 
 - Default `RuleClassifier`: HTTP 429/5xx and timeouts count as transient, schema validation errors as bad_input/bad_output, everything else as fatal
 - A `FailurePolicy` maps (kind, attempt, confidence) to a `FailureAction`
+- Statuses: `failed` means the policy chose not to retry. `dead` means retries ran out. The engine caps retries at `maxAttempts` even if a custom policy keeps asking to retry
+- Implemented actions: `retry`, `retry_modified` (hint reaches the handler as `ctx.hint`), `fail`. `escalate` and `fallback` currently fail the run with the reason recorded; M6 and M8 give them real destinations
 
 **Acceptance:**
 - A handler that fails twice with a 503 then succeeds completes on attempt 3, with backoff delays in the expected range
