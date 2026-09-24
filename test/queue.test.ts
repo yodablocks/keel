@@ -74,3 +74,30 @@ test("1,000 runs across 8 workers each complete exactly once", async (t) => {
   assert.equal(runs.filter((r) => r?.status === "completed").length, 1000);
   assert.deepEqual([...executions.values()].filter((n) => n !== 1), [], "no run executed more than once");
 });
+
+test("a handler that outlives its lease keeps the run through heartbeats", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  let executions = 0;
+
+  const slow = async () => {
+    executions++;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return "done";
+  };
+  const workers = [1, 2].map(() => engine.createWorker({ queue, leaseMs: 300, tasks: { slow } }));
+  t.after(async () => {
+    await Promise.all(workers.map((w) => w.stop()));
+    await engine.close();
+  });
+  for (const w of workers) w.start();
+
+  const { id } = await engine.enqueue("slow", {}, { queue });
+  const run = await waitFor(async () => {
+    const r = await engine.getRun(id);
+    return r?.status === "completed" && r;
+  }, 5000, "slow run to complete");
+
+  assert.equal(executions, 1, "run was never reclaimed by the idle worker");
+  assert.equal(run.attempt, 1);
+});

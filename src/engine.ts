@@ -29,6 +29,8 @@ export interface WorkerOptions {
   queue?: string;
   tasks: Record<string, TaskHandler>;
   leaseMs?: number;
+  /** How often a running handler extends its lease. Defaults to a third of leaseMs. */
+  heartbeatMs?: number;
   pollMs?: number;
 }
 
@@ -96,6 +98,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   const id = `worker-${randomUUID()}`;
   const queue = options.queue ?? "default";
   const leaseMs = options.leaseMs ?? 30_000;
+  const heartbeatMs = options.heartbeatMs ?? Math.floor(leaseMs / 3);
   const pollMs = options.pollMs ?? 50;
   let running = false;
   let loop: Promise<void> | undefined;
@@ -128,7 +131,23 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   async function execute(run: ClaimedRun): Promise<void> {
     const handler = options.tasks[run.task];
     if (!handler) throw new Error(`No handler registered for task "${run.task}"`);
-    const result = await handler(run.payload);
+    const heartbeat = setInterval(() => {
+      pool
+        .query(
+          `UPDATE runs SET lease_expires = now() + make_interval(secs => $3::double precision / 1000), updated_at = now()
+           WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
+          [run.id, id, leaseMs],
+        )
+        .catch(() => {
+          // A missed heartbeat is survivable: the next one may land before the lease expires.
+        });
+    }, heartbeatMs);
+    let result: unknown;
+    try {
+      result = await handler(run.payload);
+    } finally {
+      clearInterval(heartbeat);
+    }
     await pool.query(
       `UPDATE runs SET status = 'completed', result = $3, lease_owner = NULL, lease_expires = NULL, updated_at = now()
        WHERE id = $1 AND lease_owner = $2`,
