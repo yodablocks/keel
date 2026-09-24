@@ -47,3 +47,24 @@ test("an ambiguous failure is classified by Jev from the error and run context",
   assert.equal(question.type, "choice");
   assert.deepEqual(Object.keys(question.criteria).sort(), ["bad_input", "bad_output", "fatal", "needs_human", "transient"]);
 });
+
+test("a low-confidence Jev answer falls back to the rule verdict", async () => {
+  const { client } = fakeClient({ transient: 0.4, bad_input: 0.1, bad_output: 0.1, needs_human: 0.1, fatal: 0.3 }, 0.25);
+  const rateLimited = Object.assign(new Error("Rate limit reached"), { status: 429 });
+
+  const verdict = await new JevClassifier({ client, minConfidence: 0.5 }).classify(ctx(rateLimited));
+
+  assert.deepEqual(verdict, { kind: "transient", confidence: 0.9 }, "the rule verdict, not Jev's");
+});
+
+test("when Jev is unavailable the rule verdict is used instead of failing the classification", async () => {
+  const client: SystemOneClient = {
+    async systemOne() {
+      throw Object.assign(new Error("TypeSafe is overloaded"), { status: 529 });
+    },
+  };
+
+  const verdict = await new JevClassifier({ client }).classify(ctx(new TypeError("cannot read properties of undefined")));
+
+  assert.deepEqual(verdict, { kind: "fatal", confidence: 0.5 });
+});

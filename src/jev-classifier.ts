@@ -40,7 +40,14 @@ export interface SystemOneClient {
 
 export interface JevClassifierOptions {
   client: SystemOneClient;
+  /**
+   * Jev answers below this confidence are ignored in favor of the rule verdict. Defaults to 0.5,
+   * the TypeSafe docs' suggested floor for "do not act". Tune it on your own failures.
+   */
+  minConfidence?: number;
 }
+
+const ASKED_KINDS = new Set<string>(["transient", "bad_input", "bad_output", "needs_human", "fatal"]);
 
 /**
  * Cascade: explicit signals (error classes, rule confidence 1) are classified by rules for free.
@@ -49,21 +56,33 @@ export interface JevClassifierOptions {
 export class JevClassifier implements FailureClassifier {
   readonly #rules = new RuleClassifier();
   readonly #client: SystemOneClient;
+  readonly #minConfidence: number;
 
   constructor(options: JevClassifierOptions) {
     this.#client = options.client;
+    this.#minConfidence = options.minConfidence ?? 0.5;
   }
 
   async classify(ctx: FailureContext): Promise<FailureVerdict> {
     const byRules = await this.#rules.classify(ctx);
     if (byRules.confidence >= 1) return byRules;
 
-    const response = await this.#client.systemOne({
-      state: describeFailure(ctx),
-      questions: { failure_kind: FAILURE_KIND_QUESTION },
-    });
-    const answer = response.answers.failure_kind;
-    return { kind: answer?.choice as FailureKind, confidence: answer?.confidence ?? 0 };
+    let answer;
+    try {
+      const response = await this.#client.systemOne({
+        state: describeFailure(ctx),
+        questions: { failure_kind: FAILURE_KIND_QUESTION },
+      });
+      answer = response.answers.failure_kind;
+    } catch (err) {
+      // A TypeSafe outage must not turn every failure into a classifier error.
+      console.warn("[keel] Jev classification failed, using rules:", err);
+      return byRules;
+    }
+    if (!answer?.choice || !ASKED_KINDS.has(answer.choice)) return byRules;
+    const confidence = answer.confidence ?? 0;
+    if (confidence < this.#minConfidence) return byRules;
+    return { kind: answer.choice as FailureKind, confidence };
   }
 }
 
