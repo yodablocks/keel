@@ -123,6 +123,15 @@ export function createEngine(options: EngineOptions): Engine {
   };
 }
 
+// Error entry for an attempt whose worker lost its lease (crashed, killed, or stalled past the lease).
+// The cause is unknown, so it is recorded as a transient retry with zero confidence.
+const LEASE_EXPIRED_ERROR = `jsonb_build_object(
+  'attempt', attempt, 'name', 'LeaseExpired',
+  'message', 'Worker lost its lease: it crashed, was killed, or stalled without heartbeats',
+  'kind', 'transient', 'confidence', 0,
+  'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
+  'at', to_jsonb(now()))`;
+
 interface ClaimedRun {
   id: string;
   task: string;
@@ -145,8 +154,24 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean } | undefined;
 
   async function claim(): Promise<ClaimedRun | undefined> {
+    // Poison pill guard: a run whose final attempt lost its lease goes dead instead of being claimed again.
+    await pool.query(
+      `UPDATE runs SET
+         status = 'dead',
+         last_error = ${LEASE_EXPIRED_ERROR},
+         errors = errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}),
+         lease_owner = NULL, lease_expires = NULL, updated_at = now()
+       WHERE id IN (
+         SELECT id FROM runs
+         WHERE queue = $1 AND status = 'running' AND lease_expires < now() AND attempt >= max_attempts
+         FOR UPDATE SKIP LOCKED
+       )`,
+      [queue],
+    );
     const { rows } = await pool.query<ClaimedRun>(
       `UPDATE runs SET
+         last_error = CASE WHEN status = 'running' THEN ${LEASE_EXPIRED_ERROR} ELSE last_error END,
+         errors = CASE WHEN status = 'running' THEN errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}) ELSE errors END,
          status = 'running',
          attempt = attempt + 1,
          lease_owner = $2,
@@ -157,7 +182,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          WHERE queue = $1 AND (
            (status = 'queued' AND run_after <= now())
            -- Expired lease: the owning worker crashed or stalled, so the run is reclaimable.
-           OR (status = 'running' AND lease_expires < now())
+           OR (status = 'running' AND lease_expires < now() AND attempt < max_attempts)
          )
          ORDER BY run_after
          LIMIT 1

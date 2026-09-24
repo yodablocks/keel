@@ -40,4 +40,37 @@ test("a run from a killed worker is picked up by another worker after the lease 
 
   assert.equal(run.result, "recovered");
   assert.equal(run.attempt, 2);
+  assert.equal(run.errors[0]?.name, "LeaseExpired", "the lost attempt is recorded");
+});
+
+test("a run whose final attempt crashed its worker goes dead instead of running again", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  const leaseMs = 500;
+
+  const { id } = await engine.enqueue("work", {}, { queue, maxAttempts: 1 });
+
+  const child = spawn(process.execPath, [hangingWorker], {
+    env: { ...process.env, KEEL_QUEUE: queue, KEEL_LEASE_MS: String(leaseMs) },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  await once(child.stdout, "data");
+  child.kill("SIGKILL");
+  await once(child, "exit");
+
+  let calls = 0;
+  const survivor = engine.createWorker({ queue, leaseMs, tasks: { work: async () => void calls++ } });
+  t.after(async () => {
+    await survivor.stop();
+    await engine.close();
+  });
+  survivor.start();
+
+  const run = await waitFor(async () => {
+    const r = await engine.getRun(id);
+    return r?.status === "dead" && r;
+  }, 5000, "run to go dead");
+
+  assert.equal(calls, 0);
+  assert.equal(run.lastError?.name, "LeaseExpired");
 });
