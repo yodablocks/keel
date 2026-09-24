@@ -197,6 +197,15 @@ export interface WorkerOptions {
    * failing. Approval retries it once more with the reviewer's comment as ctx.hint. Defaults to 24 hours.
    */
   escalationTimeoutMs?: number;
+  /** Periodically purges runs of this worker's queue that finished more than keepMs ago. */
+  retention?: { keepMs: number; everyMs?: number };
+}
+
+export interface PurgeOptions {
+  /** Runs that finished (completed, failed or dead) before this moment are deleted. */
+  olderThan: Date;
+  /** Limit to one queue. Without it, tenant daily spend rows before the cutoff are deleted too. */
+  queue?: string;
 }
 
 export interface StopOptions {
@@ -232,6 +241,11 @@ export interface Engine {
   resolveApproval(runId: string, name: string, decision: ApprovalDecision): Promise<{ resolved: boolean }>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
   sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
+  /**
+   * Deletes finished runs older than the cutoff, with their steps, waits and idempotency keys, plus
+   * expired idempotency keys. Running, queued and waiting runs are never touched.
+   */
+  purge(options: PurgeOptions): Promise<{ runs: number }>;
   createWorker(options: WorkerOptions): Worker;
   close(): Promise<void>;
 }
@@ -345,6 +359,10 @@ export function createEngine(options: EngineOptions): Engine {
         budget.usd ?? null,
         budget.tokens ?? null,
       ]);
+    },
+
+    purge(purgeOptions) {
+      return purgeRuns(pool, purgeOptions);
     },
 
     async sendEvent(eventName, payload) {
@@ -794,9 +812,18 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     );
   }
 
+  let lastPurge = 0;
+  async function maintain(): Promise<void> {
+    if (options.retention && Date.now() - lastPurge >= (options.retention.everyMs ?? 60 * 60 * 1000)) {
+      lastPurge = Date.now();
+      await purgeRuns(pool, { olderThan: new Date(Date.now() - options.retention.keepMs), queue });
+    }
+  }
+
   async function runLoop(): Promise<void> {
     while (running) {
       try {
+        await maintain();
         const run = await claim();
         if (run) await execute(run);
         else await sleep(pollMs);
@@ -845,6 +872,32 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       );
     },
   };
+}
+
+async function purgeRuns(pool: pg.Pool, { olderThan, queue }: PurgeOptions): Promise<{ runs: number }> {
+  const { rows } = await pool.query<{ runs: number }>(
+    `WITH doomed AS (
+       SELECT id FROM runs
+       WHERE status IN ('completed', 'failed', 'dead') AND updated_at < $1 AND ($2::text IS NULL OR queue = $2)
+       FOR UPDATE SKIP LOCKED
+     ), purged_steps AS (
+       DELETE FROM steps WHERE run_id IN (SELECT id FROM doomed)
+     ), purged_waits AS (
+       DELETE FROM waits WHERE run_id IN (SELECT id FROM doomed)
+     ), purged_keys AS (
+       DELETE FROM idempotency_keys k
+       WHERE k.run_id IN (SELECT id FROM doomed)
+          OR (k.expires_at < now() AND ($2::text IS NULL OR k.run_id IN (SELECT id FROM runs WHERE queue = $2)))
+     ), purged_runs AS (
+       DELETE FROM runs WHERE id IN (SELECT id FROM doomed) RETURNING id
+     )
+     SELECT count(*)::int AS runs FROM purged_runs`,
+    [olderThan, queue ?? null],
+  );
+  if (queue === undefined) {
+    await pool.query(`DELETE FROM tenant_spend WHERE day < ($1::timestamptz AT TIME ZONE 'utc')::date`, [olderThan]);
+  }
+  return { runs: rows[0]!.runs };
 }
 
 function invalidAction(action: FailureAction | undefined): string | undefined {
