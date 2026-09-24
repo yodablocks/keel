@@ -8,6 +8,7 @@ keel runs background jobs and multi-step agent workflows so they survive crashes
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A524-339933?logo=nodedotjs&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Status](https://img.shields.io/badge/status-experimental-orange)
 
 ---
@@ -172,3 +173,7 @@ scripts/      demo, classifier eval, migrate
 docs/         guide and demo transcript
 PLAN.md       milestones, acceptance criteria, known risks
 ```
+
+## License
+
+[MIT](LICENSE)
