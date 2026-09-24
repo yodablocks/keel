@@ -40,3 +40,37 @@ test("a worker runs the handler and records the result", async (t) => {
   assert.deepEqual(run.result, { value: 42 });
   assert.equal(run.attempt, 1);
 });
+
+test("1,000 runs across 8 workers each complete exactly once", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  const executions = new Map<string, number>();
+
+  const workers = Array.from({ length: 8 }, () =>
+    engine.createWorker({
+      queue,
+      tasks: {
+        count: async (payload) => {
+          const key = (payload as { key: string }).key;
+          executions.set(key, (executions.get(key) ?? 0) + 1);
+        },
+      },
+    }),
+  );
+  t.after(async () => {
+    await Promise.all(workers.map((w) => w.stop()));
+    await engine.close();
+  });
+
+  const ids: string[] = [];
+  for (let i = 0; i < 1000; i++) {
+    ids.push((await engine.enqueue("count", { key: `k${i}` }, { queue })).id);
+  }
+  for (const w of workers) w.start();
+
+  await waitFor(async () => executions.size === 1000, 30_000, "all 1,000 runs to execute");
+  const runs = await Promise.all(ids.map((id) => engine.getRun(id)));
+
+  assert.equal(runs.filter((r) => r?.status === "completed").length, 1000);
+  assert.deepEqual([...executions.values()].filter((n) => n !== 1), [], "no run executed more than once");
+});
