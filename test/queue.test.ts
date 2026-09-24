@@ -101,3 +101,68 @@ test("a handler that outlives its lease keeps the run through heartbeats", async
   assert.equal(executions, 1, "run was never reclaimed by the idle worker");
   assert.equal(run.attempt, 1);
 });
+
+test("stop waits for the in-flight run to finish and then claims nothing new", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  let started!: () => void;
+  const handlerStarted = new Promise<void>((resolve) => (started = resolve));
+
+  const worker = engine.createWorker({
+    queue,
+    tasks: {
+      slow: async () => {
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return "finished";
+      },
+    },
+  });
+  t.after(() => engine.close());
+  worker.start();
+
+  const first = await engine.enqueue("slow", {}, { queue });
+  await handlerStarted;
+  await worker.stop();
+
+  assert.equal((await engine.getRun(first.id))?.status, "completed");
+
+  const second = await engine.enqueue("slow", {}, { queue });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal((await engine.getRun(second.id))?.status, "queued");
+});
+
+test("stop with a timeout releases a stuck run so another worker takes it without waiting for the lease", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  let started!: () => void;
+  const handlerStarted = new Promise<void>((resolve) => (started = resolve));
+
+  const stuck = engine.createWorker({
+    queue,
+    leaseMs: 60_000,
+    tasks: {
+      work: async () => {
+        started();
+        await new Promise(() => {});
+      },
+    },
+  });
+  const other = engine.createWorker({ queue, leaseMs: 60_000, tasks: { work: async () => "taken over" } });
+  t.after(async () => {
+    await other.stop();
+    await engine.close();
+  });
+  stuck.start();
+
+  const { id } = await engine.enqueue("work", {}, { queue });
+  await handlerStarted;
+  await stuck.stop({ timeoutMs: 200 });
+  other.start();
+
+  const run = await waitFor(async () => {
+    const r = await engine.getRun(id);
+    return r?.status === "completed" && r;
+  }, 3000, "released run to be taken over");
+  assert.equal(run.result, "taken over");
+});

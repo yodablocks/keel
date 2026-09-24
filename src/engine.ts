@@ -34,10 +34,18 @@ export interface WorkerOptions {
   pollMs?: number;
 }
 
+export interface StopOptions {
+  /**
+   * How long to wait for the in-flight run before releasing it back to the queue.
+   * Without a timeout, stop waits for the handler however long it takes.
+   */
+  timeoutMs?: number;
+}
+
 export interface Worker {
   readonly id: string;
   start(): void;
-  stop(): Promise<void>;
+  stop(options?: StopOptions): Promise<void>;
 }
 
 export interface Engine {
@@ -102,6 +110,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   const pollMs = options.pollMs ?? 50;
   let running = false;
   let loop: Promise<void> | undefined;
+  let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean } | undefined;
 
   async function claim(): Promise<ClaimedRun | undefined> {
     const { rows } = await pool.query<ClaimedRun>(
@@ -142,12 +151,18 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
           // A missed heartbeat is survivable: the next one may land before the lease expires.
         });
     }, heartbeatMs);
+    heartbeat.unref();
+    const current = { run, heartbeat, released: false };
+    inFlight = current;
     let result: unknown;
     try {
       result = await handler(run.payload);
     } finally {
       clearInterval(heartbeat);
+      inFlight = undefined;
     }
+    // Released during shutdown: another worker may own the run now.
+    if (current.released) return;
     await pool.query(
       `UPDATE runs SET status = 'completed', result = $3, lease_owner = NULL, lease_expires = NULL, updated_at = now()
        WHERE id = $1 AND lease_owner = $2`,
@@ -170,9 +185,29 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       running = true;
       loop = runLoop();
     },
-    async stop() {
+    async stop(stopOptions = {}) {
       running = false;
-      await loop;
+      if (!loop) return;
+      if (stopOptions.timeoutMs === undefined) {
+        await loop;
+        return;
+      }
+      let timer: NodeJS.Timeout | undefined;
+      const timedOut = new Promise<true>((resolve) => {
+        timer = setTimeout(() => resolve(true), stopOptions.timeoutMs);
+      });
+      const outcome = await Promise.race([loop.then(() => false as const), timedOut]);
+      clearTimeout(timer);
+      if (!outcome || !inFlight) return;
+
+      const stuck = inFlight;
+      stuck.released = true;
+      clearInterval(stuck.heartbeat);
+      await pool.query(
+        `UPDATE runs SET status = 'queued', lease_owner = NULL, lease_expires = NULL, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
+        [stuck.run.id, id],
+      );
     },
   };
 }
