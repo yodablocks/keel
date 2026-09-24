@@ -6,9 +6,11 @@ import { fileURLToPath } from "node:url";
 import { createEngine } from "../src/index.ts";
 import { DATABASE_URL, uniqueQueue } from "./helpers/db.ts";
 import { waitFor } from "./helpers/wait.ts";
+import { charge, paymentsFor } from "./helpers/fake-payments.ts";
 
 const hangingWorker = fileURLToPath(new URL("./fixtures/hanging-worker.ts", import.meta.url));
 const stepsWorker = fileURLToPath(new URL("./fixtures/steps-worker.ts", import.meta.url));
+const chargingWorker = fileURLToPath(new URL("./fixtures/charging-worker.ts", import.meta.url));
 
 test("a run from a killed worker is picked up by another worker after the lease expires", async (t) => {
   const engine = createEngine({ connectionString: DATABASE_URL });
@@ -117,4 +119,42 @@ test("after a crash inside step 3, the next worker replays steps 1 and 2 from st
 
   assert.deepEqual(executions, { plan: 0, draft: 0, send: 1 });
   assert.equal(run.result, "sent draft by child");
+});
+
+test("a worker killed right after charging does not cause a second charge when the step re-runs", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  const leaseMs = 500;
+
+  const { id } = await engine.enqueue("pay", {}, { queue });
+
+  const child = spawn(process.execPath, [chargingWorker], {
+    env: { ...process.env, KEEL_QUEUE: queue, KEEL_LEASE_MS: String(leaseMs) },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const [line] = await once(child.stdout, "data");
+  assert.equal(String(line).trim(), "charged");
+  child.kill("SIGKILL");
+  await once(child, "exit");
+
+  const survivor = engine.createWorker({
+    queue,
+    leaseMs,
+    tasks: {
+      pay: async (_payload, ctx) =>
+        ctx.step.run("charge", async ({ idempotencyKey }) => {
+          await charge(idempotencyKey, 900);
+          return "charged";
+        }),
+    },
+  });
+  t.after(async () => {
+    await survivor.stop();
+    await engine.close();
+  });
+  survivor.start();
+  await waitFor(async () => (await engine.getRun(id))?.status === "completed", 5000, "run to complete");
+
+  // The step ran twice (once per worker), but both calls carried the same key.
+  assert.deepEqual(await paymentsFor(`keel:${id}:`), [{ key: `keel:${id}:charge`, calls: 2 }]);
 });
