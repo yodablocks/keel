@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts"
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
+    "eval:classifier": "node --env-file-if-exists=.env scripts/eval-classifier.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^26.6.2",
     "@types/pg": "^8.23.1",
+    "@typesafe-ai/sdk": "^0.6.0",
     "typescript": "^7.0.2"
   }
 }
