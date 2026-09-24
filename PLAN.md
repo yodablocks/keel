@@ -151,6 +151,10 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 
 ## Known risks
 
+- `stop({ timeoutMs })` requeues a released run without checking `maxAttempts` and without an error entry, so a run released on its final attempt gets one extra execution. Fix together with the AbortSignal item below.
+- Each idle poll now runs two queries (poison-pill sweep, then claim). Fine at 50ms polling for a few workers; revisit if idle load matters (for example sweep every N polls).
+- A custom policy that throws, or returns an invalid `delayMs`, leaves the run `running` until its lease expires. It then recovers through the `LeaseExpired` path, but slowly. Classifier errors are already caught; policy errors are not.
+
 - After `stop({ timeoutMs })` releases a run, the abandoned handler keeps running in memory while another worker runs the same run. Handlers should get an `AbortSignal` that fires on release. This must be solved by M8, when tool calls have side effects.
 - Incumbents (Trigger.dev, Inngest, Temporal) are adding agent features quickly. Keel's edge is focus on M2, M6, and M7, not breadth.
 - Postgres-as-queue has a throughput ceiling (roughly thousands of jobs/sec). Fine for the target use; say so in the README.
