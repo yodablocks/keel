@@ -112,9 +112,41 @@ tasks: {
 (await engine.getRun(id)).usage; // { usd, tokens }
 ```
 
-- **Per-run budget:** checked before each new step. A run over its budget stops as `over_budget`, which the default policy escalates to a person.
+- **Per-run budget:** checked before each new step. A run over its budget stops as `over_budget`, which the default policy escalates to a person, or falls back to a cheaper model (below).
 - **Tenant daily budget** (UTC day): the tenant's runs are deferred, not failed. Queued runs wait, and running runs pause as `waiting` at their next step. They continue the next day, or as soon as you raise the limit.
 - Budgets can overshoot by up to one step, because a step's cost is known only after it runs.
+
+### Task budgets
+
+```ts
+await engine.setTaskBudget("research-agent", {
+  usdPerRun: 0.5, // default for runs of this task enqueued without their own budget
+  usdPerDay: 20, // across all runs of this task
+});
+```
+
+- `usdPerRun` / `tokensPerRun` apply to runs without an explicit `budget`; an explicit budget always wins.
+- `usdPerDay` / `tokensPerDay` defer the task's runs exactly like a tenant's daily budget. A run is held back while **either** its tenant or its task is at a limit.
+
+### Falling back to a cheaper model
+
+```ts
+const worker = engine.createWorker({
+  queue: "agents",
+  policy: defaultPolicy({ fallback: { target: "gpt-4o-mini", extendBudget: { usd: 0.1 } } }),
+  tasks: {
+    agent: async (payload, ctx) => {
+      const model = ctx.fallback ?? "gpt-4o"; // "gpt-4o-mini" once the run has fallen back
+      return ctx.step.run("answer", () => callModel(model, payload), { usage: (r) => ({ usd: r.costUsd }) });
+    },
+  },
+});
+```
+
+- When a run goes over its budget, the policy answers with a `fallback` action: the engine adds `extendBudget` to the run's budget, records the fallback on the run, and retries. `ctx.fallback` stays set for every later attempt.
+- The default policy falls back **once**. A run that goes over budget again on the fallback escalates to a person.
+- A fallback is a retry, so it counts toward `maxAttempts`.
+- Custom policies can return `{ type: "fallback", target, extendBudget? }` for any failure kind, for example to switch to a stronger model after repeated `bad_output`.
 
 ## Jev failure classifier
 

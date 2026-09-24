@@ -11,7 +11,7 @@
 | Phase | Milestones | Status |
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
-| 2. Production readiness | M10 hardening, M11 classification context (done); M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
+| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness (done); M13 dashboard, M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -210,7 +210,7 @@ The one M7 eval miss was ambiguous because the classifier could not see which st
 - `pnpm eval:export` and `pnpm eval:classifier --cases`, with a round-trip test from a real failed run
 - The fixture gained a step for all 30 cases and model output for 7 (not just the missed case). Eval, 60 Jev calls: rules 14/30; Jev and the cascade 30/30 both **with and without** step context. The tool-argument case is now correct, but also without context, so the fix can't be credited to context; the M7 run did not record the concrete model version, so a model update can't be ruled out. Context raised confidence on that case from 0.60 to 0.75 and on every `bad_output` case (mean 0.90 to 0.92)
 
-## M12: Budget completeness
+## M12: Budget completeness (done)
 
 The two budget features deferred in M6.
 
@@ -220,6 +220,11 @@ The two budget features deferred in M6.
 **Acceptance:**
 - An over-budget run with a fallback configured finishes on the cheaper model without a person
 - A task at its daily budget has further runs deferred, not failed, while other tasks keep running
+
+**How it was met:**
+- The `fallback` action carries `extendBudget` (chosen over a separate fallback budget or ignoring the budget), which the engine adds to the run's effective budget before retrying. `ctx.fallback` is sticky. The default policy's `fallback` option falls back once, then escalates
+- `engine.setTaskBudget`: `usdPerRun` is a default read at claim time (an explicit run budget wins); `usdPerDay` is enforced by one combined "tenant or task blocked" condition in the claim, the per-step pause and the parking sweep. Task spend is updated in the same statement as the step
+- **Performance finding:** the parking sweep had no usable index and scanned the whole `runs` table (about 170ms per sweep at 72,000 rows in the dev database), blocking claims meanwhile. It showed up as a 2x to 16x benchmark regression during M12. The M10 sweep most likely had the same problem at a smaller table size. Fixed by the `runs_sweepable` partial index: 0.6ms per sweep, benchmark back to its M10 level
 
 ## M13: Dashboard
 
@@ -278,6 +283,8 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 - `onApprovalRequested` fires after the approval is stored; a crash between the two means nobody is notified, although the approval still appears in `listPendingApprovals`. Poll the list as a backstop. **Accepted**
 
 ### Budgets
+
+- Runs whose task has a daily budget cost one extra query per new step (the tenant/task limit check), like tenant runs already did. **Accepted**
 
 - Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented. **Accepted**
 - Tenant budget checks are not atomic across workers: each concurrently running run of a tenant can overshoot by one step. **Accepted**
