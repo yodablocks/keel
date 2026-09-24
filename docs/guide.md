@@ -10,6 +10,7 @@ Reference for every keel feature. For an overview, start with the [README](../RE
 - [Side effects](#side-effects)
 - [Approvals and escalation](#approvals-and-escalation)
 - [Control-flow errors](#control-flow-errors)
+- [Operations: retention and sweeps](#operations-retention-and-sweeps)
 - [TypeScript notes](#typescript-notes)
 
 ## Tasks, workers and runs
@@ -197,6 +198,26 @@ try {
 ```
 
 Swallowing them lets the handler carry on, so a paused run can complete with steps skipped.
+
+## Operations: retention and sweeps
+
+```ts
+// Delete finished runs (completed, failed, dead) with their steps, waits and idempotency keys.
+await engine.purge({ olderThan: new Date(Date.now() - 30 * 24 * 3600_000), queue: "agents" });
+
+// Or let each worker purge its own queue.
+engine.createWorker({
+  queue: "agents",
+  tasks,
+  retention: { keepMs: 30 * 24 * 3600_000, everyMs: 3600_000 },
+  sweepEveryMs: 1000, // default
+});
+```
+
+- `purge` never touches queued, running or waiting runs. Without a `queue`, it also deletes tenant daily spend rows older than the cutoff.
+- Every `sweepEveryMs`, a worker sweeps its queue: runs whose final attempt lost its lease go `dead`, and runs of tenants over their daily budget are parked until the next UTC midnight (`run.runAfter` shows when). Raising the tenant's budget releases them at once.
+- A worker stopped with `stop({ timeoutMs })` records a `Released` error on the run it gave up; that attempt counts toward `maxAttempts`.
+- A failure policy that throws or returns an invalid action fails the run, with `Policy error: ...` as the reason.
 
 ## TypeScript notes
 
