@@ -6,7 +6,7 @@ An agent-native durable execution engine for TypeScript, backed by Postgres.
 
 Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
 
-Status: **M5 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+Status: **M6 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
 
 ## Requirements
 
@@ -107,7 +107,49 @@ await engine.sendEvent("approved:42", { by: "alice" });
 
 - A waiting run has status `waiting` and holds no worker. It resumes by replay, so the durable step rules apply.
 - Events wake only waits that already exist. An event sent before the run reaches `forEvent` is not delivered; use a timeout.
-- Waits suspend the run by throwing `RunSuspended`. If you wrap a wait in `try/catch`, rethrow it.
+- Waits suspend the run by throwing `RunSuspended`. See [Control-flow errors](#control-flow-errors).
+
+## Budgets
+
+```ts
+await engine.setTenantBudget("acme", { usdPerDay: 50 });
+await engine.enqueue("agent", payload, { tenant: "acme", budget: { usd: 2 } });
+
+tasks: {
+  agent: async (payload, ctx) => {
+    const answer = await ctx.step.run("llm", () => callModel(payload), {
+      usage: (r) => ({ usd: r.costUsd, tokens: r.totalTokens }),
+    });
+    // ...
+  },
+}
+
+(await engine.getRun(id)).usage; // { usd, tokens }
+```
+
+- **Per-run budget:** checked before each new step. A run over its budget fails as `over_budget`, which the default policy escalates.
+- **Tenant daily budget** (UTC day): the tenant's runs are deferred, not failed. Queued runs wait, and running runs pause as `waiting` at their next step. They continue the next day, or as soon as you raise the limit.
+- Budgets can overshoot by up to one step, because a step's cost is known only after it runs.
+
+## Control-flow errors
+
+`ctx.step.run` and `ctx.wait.*` can throw two errors that are signals to the engine, not failures:
+
+- `RunSuspended`: the run is pausing (a wait, or its tenant hit a budget mid-run)
+- `LeaseLostError`: another worker owns the run now
+
+If you catch errors around a step or a wait, rethrow these:
+
+```ts
+try {
+  return await ctx.step.run("llm", () => callModel(prompt));
+} catch (err) {
+  if (err instanceof RunSuspended || err instanceof LeaseLostError) throw err;
+  return fallbackAnswer();
+}
+```
+
+Swallowing them lets the handler carry on, so a paused run can complete with steps skipped.
 
 ## TypeScript notes
 

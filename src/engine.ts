@@ -1,7 +1,7 @@
 import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import { defaultPolicy, RuleClassifier } from "./failure.ts";
+import { defaultPolicy, OverBudgetError, RuleClassifier } from "./failure.ts";
 import type { FailureAction, FailureClassifier, FailureContext, FailureKind, FailurePolicy, FailureVerdict } from "./failure.ts";
 
 export type RunStatus = "queued" | "running" | "waiting" | "completed" | "failed" | "dead";
@@ -17,6 +17,23 @@ export interface Run {
   lastError: RunError | null;
   /** One entry per failed attempt, oldest first. */
   errors: RunError[];
+  /** Sum of usage reported by completed steps. */
+  usage: Usage;
+}
+
+export interface Usage {
+  usd: number;
+  tokens: number;
+}
+
+export interface TenantBudget {
+  usdPerDay?: number;
+  tokensPerDay?: number;
+}
+
+export interface StepOptions<T> {
+  /** Reports what the step cost. Stored with the step result, so replays never count it twice. */
+  usage?: (result: T) => Partial<Usage>;
 }
 
 export interface RunError {
@@ -44,6 +61,10 @@ export interface EnqueueOptions {
   idempotencyKey?: string;
   /** How long the key stays live. Defaults to 24 hours. */
   idempotencyTtlMs?: number;
+  /** Groups runs for tenant budgets (engine.setTenantBudget). */
+  tenant?: string;
+  /** Checked before each new step. One step can overshoot it, since cost is known only after a step runs. */
+  budget?: Partial<Usage>;
 }
 
 export interface EnqueueResult {
@@ -58,7 +79,7 @@ export interface StepApi {
    * result without calling fn. Results are JSON round-tripped, on the first run too, so a Date comes
    * back as a string either way. Names must be unique within a run.
    */
-  run<T>(name: string, fn: () => T | Promise<T>): Promise<T>;
+  run<T>(name: string, fn: () => T | Promise<T>, options?: StepOptions<T>): Promise<T>;
 }
 
 export type EventWaitResult = { timedOut: false; payload: unknown } | { timedOut: true };
@@ -79,9 +100,10 @@ export interface WaitApi {
  */
 export class RunSuspended extends Error {
   override name = "RunSuspended";
-  readonly waitName: string;
-  constructor(waitName: string) {
-    super(`Run suspended on wait "${waitName}"`);
+  /** The wait that suspended the run, or null when it was paused for another reason (tenant budget). */
+  readonly waitName: string | null;
+  constructor(waitName: string | null, reason?: string) {
+    super(reason ?? `Run suspended on wait "${waitName}"`);
     this.waitName = waitName;
   }
 }
@@ -136,6 +158,11 @@ export interface Worker {
 export interface Engine {
   enqueue(task: string, payload: unknown, opts?: EnqueueOptions): Promise<EnqueueResult>;
   getRun(id: string): Promise<Run | undefined>;
+  /**
+   * Sets a tenant's daily limits (UTC calendar day). Omitted limits are removed. While a tenant is at a
+   * limit its runs are deferred: queued runs are not claimed and running runs pause at their next step.
+   */
+  setTenantBudget(tenant: string, budget: TenantBudget): Promise<void>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
   sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
   createWorker(options: WorkerOptions): Worker;
@@ -147,10 +174,19 @@ export function createEngine(options: EngineOptions): Engine {
 
   return {
     async enqueue(task, payload, opts = {}) {
-      const values = [opts.queue ?? "default", task, JSON.stringify(payload ?? {}), opts.maxAttempts ?? 3];
+      const values = [
+        opts.queue ?? "default",
+        task,
+        JSON.stringify(payload ?? {}),
+        opts.maxAttempts ?? 3,
+        opts.tenant ?? null,
+        opts.budget?.usd ?? null,
+        opts.budget?.tokens ?? null,
+      ];
       if (opts.idempotencyKey === undefined) {
         const { rows } = await pool.query<{ id: string }>(
-          `INSERT INTO runs (queue, task, payload, max_attempts) VALUES ($1, $2, $3, $4) RETURNING id`,
+          `INSERT INTO runs (queue, task, payload, max_attempts, tenant, budget_usd, budget_tokens)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
           values,
         );
         return { id: rows[0]!.id, created: true };
@@ -162,14 +198,14 @@ export function createEngine(options: EngineOptions): Engine {
       const { rows } = await pool.query<{ id: string }>(
         `WITH taken AS (
            INSERT INTO idempotency_keys (task, key, run_id, expires_at)
-           VALUES ($2, $5, gen_random_uuid(), now() + make_interval(secs => $6::double precision / 1000))
+           VALUES ($2, $8, gen_random_uuid(), now() + make_interval(secs => $9::double precision / 1000))
            ON CONFLICT (task, key) DO UPDATE
              SET run_id = EXCLUDED.run_id, expires_at = EXCLUDED.expires_at
              WHERE idempotency_keys.expires_at <= now()
            RETURNING run_id
          )
-         INSERT INTO runs (id, queue, task, payload, max_attempts)
-         SELECT run_id, $1, $2, $3, $4 FROM taken
+         INSERT INTO runs (id, queue, task, payload, max_attempts, tenant, budget_usd, budget_tokens)
+         SELECT run_id, $1, $2, $3, $4, $5, $6, $7 FROM taken
          RETURNING id`,
         [...values, opts.idempotencyKey, ttlMs],
       );
@@ -184,7 +220,10 @@ export function createEngine(options: EngineOptions): Engine {
 
     async getRun(id) {
       const { rows } = await pool.query(
-        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors FROM runs WHERE id = $1`,
+        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors,
+                (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
+                (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens
+         FROM runs WHERE id = $1`,
         [id],
       );
       const row = rows[0];
@@ -199,7 +238,17 @@ export function createEngine(options: EngineOptions): Engine {
         result: row.result,
         lastError: row.last_error,
         errors: row.errors,
+        usage: { usd: row.usage_usd, tokens: row.usage_tokens },
       };
+    },
+
+    async setTenantBudget(tenant, budget) {
+      await pool.query(
+        `INSERT INTO tenant_budgets (tenant, usd_per_day, tokens_per_day) VALUES ($1, $2, $3)
+         ON CONFLICT (tenant) DO UPDATE
+           SET usd_per_day = EXCLUDED.usd_per_day, tokens_per_day = EXCLUDED.tokens_per_day, updated_at = now()`,
+        [tenant, budget.usdPerDay ?? null, budget.tokensPerDay ?? null],
+      );
     },
 
     async sendEvent(eventName, payload) {
@@ -230,6 +279,14 @@ const LEASE_EXPIRED_ERROR = `jsonb_build_object(
   'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
   'at', to_jsonb(now()))`;
 
+// True when the run's tenant has reached a daily limit for the current UTC day. Expects `runs` in scope.
+const TENANT_OVER_BUDGET = `EXISTS (
+  SELECT 1 FROM tenant_budgets b
+  LEFT JOIN tenant_spend s ON s.tenant = b.tenant AND s.day = (now() AT TIME ZONE 'utc')::date
+  WHERE b.tenant = runs.tenant
+    AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
+      OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
+
 interface ClaimedRun {
   id: string;
   task: string;
@@ -237,6 +294,9 @@ interface ClaimedRun {
   attempt: number;
   max_attempts: number;
   hint: string | null;
+  tenant: string | null;
+  budget_usd: number | null;
+  budget_tokens: number | null;
 }
 
 function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
@@ -288,11 +348,14 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
              OR EXISTS (SELECT 1 FROM waits w WHERE w.run_id = runs.id AND w.resolved_at IS NOT NULL AND w.consumed_at IS NULL)
            ))
          )
+         -- Tenant budgets defer runs instead of failing them. Expired leases are still reclaimed:
+         -- the run pauses at its next step if the tenant is still over.
+         AND (tenant IS NULL OR status = 'running' OR NOT ${TENANT_OVER_BUDGET})
          ORDER BY run_after
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, task, payload, attempt, max_attempts, hint`,
+       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, budget_usd, budget_tokens`,
       [queue, id, leaseMs],
     );
     return rows[0];
@@ -340,7 +403,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       await pool.query(
         `UPDATE runs SET
            status = 'waiting',
-           run_after = (SELECT wake_at FROM waits WHERE run_id = $1 AND name = $3),
+           -- No wait (budget pause): due at once, and the claim query holds it until the tenant has budget.
+           run_after = coalesce((SELECT wake_at FROM waits WHERE run_id = $1 AND name = $3), now()),
            lease_owner = NULL, lease_expires = NULL, updated_at = now()
          WHERE id = $1 AND lease_owner = $2`,
         [run.id, id, error.waitName],
@@ -359,29 +423,60 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   }
 
   async function createContextApis(run: ClaimedRun): Promise<{ step: StepApi; wait: WaitApi }> {
-    const { rows } = await pool.query<{ name: string; result: unknown }>(
-      `SELECT name, result FROM steps WHERE run_id = $1`,
+    const { rows } = await pool.query<{ name: string; result: unknown; usd: number; tokens: number }>(
+      `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
       [run.id],
     );
     const stored = new Map(rows.map((r) => [r.name, r.result]));
+    // Only the lease holder adds steps, so in-memory totals stay exact for this attempt.
+    const spent: Usage = {
+      usd: rows.reduce((sum, r) => sum + r.usd, 0),
+      tokens: rows.reduce((sum, r) => sum + r.tokens, 0),
+    };
     const seen = new Set<string>();
 
     const step: StepApi = {
-      async run<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+      async run<T>(name: string, fn: () => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
         if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
         seen.add(name);
         if (stored.has(name)) return stored.get(name) as T;
 
-        const json = JSON.stringify((await fn()) ?? null);
+        const over = overBudget(spent, run);
+        if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
+        if (run.tenant !== null) {
+          const { rows: tenantRows } = await pool.query<{ over: boolean }>(
+            `SELECT ${TENANT_OVER_BUDGET} AS over FROM runs WHERE id = $1`,
+            [run.id],
+          );
+          if (tenantRows[0]?.over) {
+            throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
+          }
+        }
+
+        const value = await fn();
+        const usage = options.usage?.(value) ?? {};
+        const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
-        const { rowCount } = await pool.query(
-          `INSERT INTO steps (run_id, name, result, attempt)
-           SELECT $1, $2, $3::jsonb, $4
-           WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
-           ON CONFLICT (run_id, name) DO NOTHING`,
-          [run.id, name, json, run.attempt, id],
+        // The tenant's daily spend is updated in the same statement, so it can never drift from the steps.
+        const { rows: inserted } = await pool.query<{ stored: number }>(
+          `WITH ins AS (
+             INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
+             SELECT $1, $2, $3::jsonb, $4, $6, $7
+             WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
+             ON CONFLICT (run_id, name) DO NOTHING
+             RETURNING usd, tokens
+           ), spend AS (
+             INSERT INTO tenant_spend (tenant, day, usd, tokens)
+             SELECT $8, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins WHERE $8::text IS NOT NULL
+             ON CONFLICT (tenant, day) DO UPDATE
+               SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
+           )
+           SELECT count(*)::int AS stored FROM ins`,
+          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant],
         );
-        if (rowCount === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
+        if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
+        spent.usd += usage.usd ?? 0;
+        spent.tokens += usage.tokens ?? 0;
         return JSON.parse(json) as T;
       },
     };
@@ -504,6 +599,12 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       );
     },
   };
+}
+
+function overBudget(spent: Usage, run: ClaimedRun): string | undefined {
+  if (run.budget_usd !== null && spent.usd >= run.budget_usd) return `$${spent.usd} of its $${run.budget_usd} budget`;
+  if (run.budget_tokens !== null && spent.tokens >= run.budget_tokens) return `${spent.tokens} of its ${run.budget_tokens} token budget`;
+  return undefined;
 }
 
 function serializeError(err: unknown): { name: string; message: string } {
