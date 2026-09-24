@@ -35,6 +35,7 @@ keel works out *why* a step failed and acts on it. It treats tokens and dollars 
 | **Safe side effects** | Each step gets a stable idempotency key, so a step re-run after a crash can't charge a card twice. |
 | **Waits and events** | Durable sleeps and waits for external events that free the worker in the meantime. |
 | **Dashboard** | `pnpm dashboard`: a run list, a logbook of each run (steps, costs, errors, decisions), and Approve/Reject for pending approvals. No dependencies, no JavaScript. |
+| **Serverless mode** | `worker.runOnce({ deadlineMs })` works through due runs and returns, for cron jobs and serverless functions. A run cut off by the deadline resumes from its last stored step on the next call. |
 | **Crash safety** | Postgres `SKIP LOCKED` claims, leases with heartbeats, fenced writes, and dead-lettering of runs that keep crashing their workers. |
 
 ## Quick start
@@ -82,6 +83,8 @@ await engine.enqueue("refund", { orderId: 42, amount: 900 }, { queue: "agents", 
 ```
 
 If the worker crashes after `load-order`, another worker resumes the run without loading the order again. While the run waits for approval it holds no worker at all.
+
+No long-lived process? Call `await worker.runOnce({ deadlineMs: 25_000 })` from a cron job or a serverless function instead of `worker.start()`.
 
 See the **[guide](docs/guide.md)** for every feature: steps, waits, budgets, the classifier, approvals, and the rules that keep replay correct.
 
@@ -171,7 +174,7 @@ keel is an **experimental project**, and the name is not final. All planned mile
 
 The full list is under [Known risks](PLAN.md#known-risks), each tagged with the milestone that addresses it.
 
-**Roadmap:** phase 2 (hardening, classification with step context, budget fallbacks and the dashboard are done; a serverless mode, a benchmark and packaging are next) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
+**Roadmap:** phase 2 (hardening, classification with step context, budget fallbacks, the dashboard and serverless mode are done; a benchmark and packaging are next) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
 
 ## Development
 

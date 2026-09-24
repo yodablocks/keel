@@ -11,7 +11,7 @@
 | Phase | Milestones | Status |
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
-| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard (done); M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
+| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode (done); M15 benchmark and packaging (planned) | In progress |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -244,7 +244,7 @@ A small web UI that makes run state and approvals visible without SQL.
 - Process note: the dashboard was written before its HTTP tests (the engine APIs were test-first); the mutation checks above stand in for the missing red step
 - Checked visually with headless Chrome in light and dark mode, which caught a row animation that replayed on every auto-refresh; screenshots are in `docs/images/`
 
-## M14: Serverless mode
+## M14: Serverless mode (done)
 
 Replay-based durability means any process can resume any run, so a long-lived worker is optional.
 
@@ -254,6 +254,11 @@ Replay-based durability means any process can resume any run, so a long-lived wo
 **Acceptance:**
 - A run with a wait and three steps completes across several `runOnce` calls with no long-lived worker
 - A deadline that falls inside a step releases the run cleanly, and the next call resumes it from the last stored step
+
+**How it was met:**
+- `worker.runOnce({ maxRuns, deadlineMs, releaseMarginMs })` returns counts (`claimed`, `completed`, `failed`, `suspended`, `yielded`, `lost`) and runs one maintenance pass per call
+- Deadline releases are **progress-aware** (chosen by the maintainer): with at least one new step stored, the run is paused without using up an attempt; without progress it counts as a `Released` attempt, so a step longer than any deadline ends `dead` instead of looping
+- Tests for both acceptance criteria plus the no-progress guard, `maxRuns` and the started-worker guard; each rule was shown to fail its test when broken
 
 ## M15: Benchmark and packaging
 
@@ -304,6 +309,10 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 - One Postgres is the throughput ceiling. **Measured in M15; sharding is a non-goal**
 
 ### Operations
+
+- A deadline yield with progress leaves no trace in the run's error history, so the logbook doesn't show how many invocations a run took. **Accepted**
+- A deadline that hits in the short window between claiming a run and starting its handler waits for the handler instead of releasing it. **Accepted**
+- After a yield, the abandoned handler keeps running in the same process until it notices `ctx.signal`. In a serverless function the platform usually freezes or ends the process, so later side effects are unlikely but possible; use step idempotency keys. **Accepted**
 
 - ~~Steps, waits, expired idempotency keys and `tenant_spend` rows are never cleaned up.~~ Fixed in M10 by `engine.purge` and worker `retention`. Retention is opt-in: without it, tables still grow
 - `purge` deletes in a single statement; purging millions of rows at once holds locks for a long time. Run it often with a short `everyMs` rather than rarely. **Accepted**
