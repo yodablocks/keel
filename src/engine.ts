@@ -73,13 +73,21 @@ export interface EnqueueResult {
   created: boolean;
 }
 
+export interface StepCall {
+  /**
+   * `keel:<runId>:<stepName>`: identical on every attempt and every worker. Pass it to external APIs
+   * (Stripe, email providers) so a step re-run after a crash cannot repeat the side effect.
+   */
+  idempotencyKey: string;
+}
+
 export interface StepApi {
   /**
    * Runs fn once per run. After it succeeds its result is stored, and later attempts get the stored
    * result without calling fn. Results are JSON round-tripped, on the first run too, so a Date comes
    * back as a string either way. Names must be unique within a run.
    */
-  run<T>(name: string, fn: () => T | Promise<T>, options?: StepOptions<T>): Promise<T>;
+  run<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options?: StepOptions<T>): Promise<T>;
 }
 
 export type EventWaitResult = { timedOut: false; payload: unknown } | { timedOut: true };
@@ -436,7 +444,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     const seen = new Set<string>();
 
     const step: StepApi = {
-      async run<T>(name: string, fn: () => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
+      async run<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
         if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
         seen.add(name);
         if (stored.has(name)) return stored.get(name) as T;
@@ -453,7 +461,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
           }
         }
 
-        const value = await fn();
+        const value = await fn({ idempotencyKey: `keel:${run.id}:${name}` });
         const usage = options.usage?.(value) ?? {};
         const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
