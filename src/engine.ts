@@ -109,6 +109,8 @@ export interface RunError {
 
 export interface EngineOptions {
   connectionString: string;
+  /** Maximum Postgres connections for this engine and its workers. Defaults to 10. */
+  poolSize?: number;
 }
 
 export interface EnqueueOptions {
@@ -357,7 +359,7 @@ export interface Engine {
 }
 
 export function createEngine(options: EngineOptions): Engine {
-  const pool = new pg.Pool({ connectionString: options.connectionString });
+  const pool = new pg.Pool({ connectionString: options.connectionString, max: options.poolSize ?? 10 });
 
   return {
     async enqueue(task, payload, opts = {}) {
