@@ -1,13 +1,7 @@
 // Hand-labelled failure cases for comparing classifiers. Synthetic, but shaped like real errors from
 // model SDKs, fetch, validation libraries and agent code. Replace or extend with your own failures.
 // Explicit keel error classes (BadOutputError, ...) are left out: both classifiers handle them by rule.
-import type { FailureKind } from "../src/index.ts";
-
-export interface FailureCase {
-  label: FailureKind;
-  task: string;
-  error: unknown;
-}
+import type { FailureCase } from "./eval-cases.ts";
 
 function err(message: string, fields: Record<string, unknown> = {}, name = "Error"): Error {
   const e = Object.assign(new Error(message), fields);
