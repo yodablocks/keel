@@ -109,6 +109,8 @@ export interface RunError {
 
 export interface EngineOptions {
   connectionString: string;
+  /** Maximum Postgres connections for this engine and its workers. Defaults to 10. */
+  poolSize?: number;
 }
 
 export interface EnqueueOptions {
@@ -357,7 +359,7 @@ export interface Engine {
 }
 
 export function createEngine(options: EngineOptions): Engine {
-  const pool = new pg.Pool({ connectionString: options.connectionString });
+  const pool = new pg.Pool({ connectionString: options.connectionString, max: options.poolSize ?? 10 });
 
   return {
     async enqueue(task, payload, opts = {}) {
@@ -553,21 +555,32 @@ const LEASE_EXPIRED_ERROR = `jsonb_build_object(
   'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
   'at', to_jsonb(now()))`;
 
+// Daily spend is split over SPEND_SHARDS rows per tenant or task, each write picking one at random, so
+// concurrent steps don't queue on a single row lock. Reads sum the shards.
+const SPEND_SHARDS = 16;
+const TODAY = `(now() AT TIME ZONE 'utc')::date`;
+
 // True when the run's tenant has reached a daily limit for the current UTC day. Expects `runs` in scope.
 const TENANT_OVER_BUDGET = `EXISTS (
   SELECT 1 FROM tenant_budgets b
-  LEFT JOIN tenant_spend s ON s.tenant = b.tenant AND s.day = (now() AT TIME ZONE 'utc')::date
+  CROSS JOIN LATERAL (
+    SELECT coalesce(sum(s.usd), 0) AS usd, coalesce(sum(s.tokens), 0) AS tokens
+    FROM tenant_spend s WHERE s.tenant = b.tenant AND s.day = ${TODAY}
+  ) spent
   WHERE b.tenant = runs.tenant
-    AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
-      OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
+    AND ((b.usd_per_day IS NOT NULL AND spent.usd >= b.usd_per_day)
+      OR (b.tokens_per_day IS NOT NULL AND spent.tokens >= b.tokens_per_day)))`;
 
 // True when the run's task has reached a daily limit for the current UTC day. Expects `runs` in scope.
 const TASK_OVER_BUDGET = `EXISTS (
   SELECT 1 FROM task_budgets b
-  LEFT JOIN task_spend s ON s.task = b.task AND s.day = (now() AT TIME ZONE 'utc')::date
+  CROSS JOIN LATERAL (
+    SELECT coalesce(sum(s.usd), 0) AS usd, coalesce(sum(s.tokens), 0) AS tokens
+    FROM task_spend s WHERE s.task = b.task AND s.day = ${TODAY}
+  ) spent
   WHERE b.task = runs.task
-    AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
-      OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
+    AND ((b.usd_per_day IS NOT NULL AND spent.usd >= b.usd_per_day)
+      OR (b.tokens_per_day IS NOT NULL AND spent.tokens >= b.tokens_per_day)))`;
 
 // A run is held back (deferred, never failed) while its tenant or its task is at a daily limit.
 const BUDGET_BLOCKED = `((runs.tenant IS NOT NULL AND ${TENANT_OVER_BUDGET}) OR ${TASK_OVER_BUDGET})`;
@@ -851,14 +864,15 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
              ON CONFLICT (run_id, name) DO NOTHING
              RETURNING usd, tokens
            ), spend AS (
-             INSERT INTO tenant_spend (tenant, day, usd, tokens)
-             SELECT $8, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins WHERE $8::text IS NOT NULL
-             ON CONFLICT (tenant, day) DO UPDATE
+             INSERT INTO tenant_spend (tenant, day, shard, usd, tokens)
+             SELECT $8, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens
+             FROM ins WHERE $8::text IS NOT NULL
+             ON CONFLICT (tenant, day, shard) DO UPDATE
                SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
            ), task_spent AS (
-             INSERT INTO task_spend (task, day, usd, tokens)
-             SELECT $9, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins
-             ON CONFLICT (task, day) DO UPDATE
+             INSERT INTO task_spend (task, day, shard, usd, tokens)
+             SELECT $9, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens FROM ins
+             ON CONFLICT (task, day, shard) DO UPDATE
                SET usd = task_spend.usd + EXCLUDED.usd, tokens = task_spend.tokens + EXCLUDED.tokens
            )
            SELECT count(*)::int AS stored FROM ins`,

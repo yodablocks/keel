@@ -13,6 +13,7 @@ Reference for every keel feature. For an overview, start with the [README](../RE
 - [Serverless and cron: runOnce](#serverless-and-cron-runonce)
 - [Operations: retention and sweeps](#operations-retention-and-sweeps)
 - [Inspecting runs and the dashboard](#inspecting-runs-and-the-dashboard)
+- [Engine options](#engine-options)
 - [TypeScript notes](#typescript-notes)
 
 ## Tasks, workers and runs
@@ -315,6 +316,14 @@ await engine.listPendingApprovals({ queue: "agents" }); // filters are optional
 
 To embed it in your own process: `const dashboard = await startDashboard({ engine, port: 4400 })`, then `dashboard.close()`.
 
+## Engine options
+
+```ts
+createEngine({ connectionString, poolSize: 20 }); // poolSize: max Postgres connections, default 10
+```
+
+Each worker uses a connection while it claims, heartbeats and writes. Give the engine at least as many connections as it has concurrently busy workers, and keep the total across all processes under Postgres's `max_connections` (100 by default).
+
 ## TypeScript notes
 
-Code is run by Node without a build step, so it must use erasable syntax only: no `enum`, no `namespace`, no constructor parameter properties. Relative imports use the `.ts` extension. `tsc` is used for typechecking only.
+In development, Node runs the `.ts` sources directly, so they must use erasable syntax only: no `enum`, no `namespace`, no constructor parameter properties. Relative imports use the `.ts` extension. `pnpm build` compiles `src/` to `dist/` for the package, rewriting those imports to `.js`; `pnpm typecheck` checks everything without emitting.

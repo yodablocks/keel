@@ -5,6 +5,21 @@
   "description": "Agent-native durable execution engine for TypeScript (working name)",
   "license": "MIT",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "db/migrations",
+    "README.md",
+    "LICENSE"
+  ],
   "packageManager": "pnpm@10.14.0",
   "engines": {
     "node": ">=24"
@@ -19,7 +34,10 @@
     "demo": "node --env-file-if-exists=.env scripts/demo.ts",
     "bench:deferred": "node --env-file-if-exists=.env scripts/bench-deferred.ts",
     "eval:export": "node --env-file-if-exists=.env scripts/eval-export.ts",
-    "dashboard": "node --env-file-if-exists=.env scripts/dashboard.ts"
+    "dashboard": "node --env-file-if-exists=.env scripts/dashboard.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
+    "bench": "node --env-file-if-exists=.env scripts/bench.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"
