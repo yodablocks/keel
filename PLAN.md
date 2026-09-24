@@ -140,7 +140,7 @@ interface FailureClassifier {
 
 ---
 
-## M9: Agent demo
+## M9: Agent demo (done)
 
 A multi-step agent workflow (research, draft, tool call, send) that shows the whole engine:
 
@@ -150,6 +150,8 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 4. The run hits its cost budget and escalates to a human approval
 
 **Acceptance:** a recorded terminal demo plus a README section explaining each moment.
+
+**How it was met:** `pnpm demo` (scripts/demo.ts) runs the story with two worker processes and a scripted fake model; the recording is `docs/demo-transcript.txt` (real Jev), explained in the README. Added `engine.setRunBudget` so a reviewer can raise the budget before approving an over-budget escalation. `test/demo.test.ts` runs the offline variant on every test run.
 
 ---
 

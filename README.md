@@ -6,7 +6,25 @@ An agent-native durable execution engine for TypeScript, backed by Postgres.
 
 Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
 
-Status: **M8 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets, Jev classifier, safe side effects, approvals). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+Status: **all milestones (M0 to M9) done**: queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets, Jev classifier, safe side effects, approvals, and an end-to-end agent demo. See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+
+## Demo
+
+```sh
+pnpm db:up && pnpm db:migrate
+pnpm demo            # real Jev classifier, needs TYPESAFE_API_KEY in .env
+pnpm demo --offline  # no API key: a clearly labelled offline stand-in classifier
+```
+
+One agent run (research, plan, draft, send, follow-up) with a $0.125 budget, two worker processes, and a scripted fake model and tools that misbehave on cue. Recorded with real Jev in [docs/demo-transcript.txt](docs/demo-transcript.txt). What happens:
+
+1. **Hallucinated tool.** The model's plan calls `serch_web`, which does not exist. The handler throws a plain `Error`, with no keel error class. Jev reads the message and classifies it `bad_output` (0.96), so the policy retries with the error as `ctx.hint`, and the model's second plan uses `search_web`.
+2. **Crash mid-run.** The demo `SIGKILL`s worker A in the middle of the draft step. Worker B takes the run once A's lease expires. `research` and `plan` come back from storage: the transcript shows each model call exactly once across both workers. The lost attempt is recorded as `LeaseExpired`.
+3. **Rate limit.** The email API answers 429. Classified `transient`, the run backs off (about 3s) and the retry sends the email with the same idempotency key.
+4. **Over budget.** After sending, the run has spent $0.13 of $0.125. Before the follow-up step it stops with `OverBudgetError`, and the policy escalates it to a person instead of failing.
+5. **Human approval.** The demo plays the reviewer: it finds the pending escalation, raises the run's budget to $0.25 with `engine.setRunBudget`, and approves. The run finishes the follow-up step and completes after 5 attempts, $0.15 spent.
+
+`test/demo.test.ts` runs the offline demo on every `pnpm test` and checks each of these moments.
 
 ## Requirements
 
