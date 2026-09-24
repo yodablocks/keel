@@ -64,3 +64,26 @@ test("a run over its budget stops before the next step and escalates", async (t)
   assert.equal(run.errors[0]?.kind, "over_budget");
   assert.equal(run.errors[0]?.action.type, "escalate");
 });
+
+test("a tenant at its daily budget has new runs deferred, not failed, until the budget allows", async (t) => {
+  const { engine, queue, tenant } = setup(t, {
+    agent: async (_payload, ctx) => {
+      await ctx.step.run("a", () => "a", cost(0.6, 0));
+      await ctx.step.run("b", () => "b", cost(0.6, 0));
+      return "done";
+    },
+  });
+  await engine.setTenantBudget(tenant, { usdPerDay: 1 });
+
+  const first = await engine.enqueue("agent", {}, { queue, tenant });
+  await status(engine, first.id, "completed");
+
+  const deferred = await engine.enqueue("agent", {}, { queue, tenant });
+  const otherTenant = await engine.enqueue("agent", {}, { queue, tenant: `${tenant}-other` });
+  await status(engine, otherTenant.id, "completed");
+  assert.equal((await engine.getRun(deferred.id))?.status, "queued", "over-budget tenant's run is left queued");
+
+  await engine.setTenantBudget(tenant, { usdPerDay: 10 });
+  const run = await status(engine, deferred.id, "completed");
+  assert.equal(run.attempt, 1);
+});

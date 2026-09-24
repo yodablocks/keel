@@ -26,6 +26,11 @@ export interface Usage {
   tokens: number;
 }
 
+export interface TenantBudget {
+  usdPerDay?: number;
+  tokensPerDay?: number;
+}
+
 export interface StepOptions<T> {
   /** Reports what the step cost. Stored with the step result, so replays never count it twice. */
   usage?: (result: T) => Partial<Usage>;
@@ -152,6 +157,11 @@ export interface Worker {
 export interface Engine {
   enqueue(task: string, payload: unknown, opts?: EnqueueOptions): Promise<EnqueueResult>;
   getRun(id: string): Promise<Run | undefined>;
+  /**
+   * Sets a tenant's daily limits (UTC calendar day). Omitted limits are removed. While a tenant is at a
+   * limit its runs are deferred: queued runs are not claimed and running runs pause at their next step.
+   */
+  setTenantBudget(tenant: string, budget: TenantBudget): Promise<void>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
   sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
   createWorker(options: WorkerOptions): Worker;
@@ -231,6 +241,15 @@ export function createEngine(options: EngineOptions): Engine {
       };
     },
 
+    async setTenantBudget(tenant, budget) {
+      await pool.query(
+        `INSERT INTO tenant_budgets (tenant, usd_per_day, tokens_per_day) VALUES ($1, $2, $3)
+         ON CONFLICT (tenant) DO UPDATE
+           SET usd_per_day = EXCLUDED.usd_per_day, tokens_per_day = EXCLUDED.tokens_per_day, updated_at = now()`,
+        [tenant, budget.usdPerDay ?? null, budget.tokensPerDay ?? null],
+      );
+    },
+
     async sendEvent(eventName, payload) {
       const { rowCount } = await pool.query(
         `UPDATE waits SET resolved_at = now(), payload = $2
@@ -258,6 +277,14 @@ const LEASE_EXPIRED_ERROR = `jsonb_build_object(
   'kind', 'transient', 'confidence', 0,
   'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
   'at', to_jsonb(now()))`;
+
+// True when the run's tenant has reached a daily limit for the current UTC day. Expects `runs` in scope.
+const TENANT_OVER_BUDGET = `EXISTS (
+  SELECT 1 FROM tenant_budgets b
+  LEFT JOIN tenant_spend s ON s.tenant = b.tenant AND s.day = (now() AT TIME ZONE 'utc')::date
+  WHERE b.tenant = runs.tenant
+    AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
+      OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
 
 interface ClaimedRun {
   id: string;
@@ -320,6 +347,9 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
              OR EXISTS (SELECT 1 FROM waits w WHERE w.run_id = runs.id AND w.resolved_at IS NOT NULL AND w.consumed_at IS NULL)
            ))
          )
+         -- Tenant budgets defer runs instead of failing them. Expired leases are still reclaimed:
+         -- the run pauses at its next step if the tenant is still over.
+         AND (tenant IS NULL OR status = 'running' OR NOT ${TENANT_OVER_BUDGET})
          ORDER BY run_after
          LIMIT 1
          FOR UPDATE SKIP LOCKED
@@ -416,14 +446,24 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         const usage = options.usage?.(value) ?? {};
         const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
-        const { rowCount } = await pool.query(
-          `INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
-           SELECT $1, $2, $3::jsonb, $4, $6, $7
-           WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
-           ON CONFLICT (run_id, name) DO NOTHING`,
-          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0],
+        // The tenant's daily spend is updated in the same statement, so it can never drift from the steps.
+        const { rows: inserted } = await pool.query<{ stored: number }>(
+          `WITH ins AS (
+             INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
+             SELECT $1, $2, $3::jsonb, $4, $6, $7
+             WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
+             ON CONFLICT (run_id, name) DO NOTHING
+             RETURNING usd, tokens
+           ), spend AS (
+             INSERT INTO tenant_spend (tenant, day, usd, tokens)
+             SELECT $8, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins WHERE $8::text IS NOT NULL
+             ON CONFLICT (tenant, day) DO UPDATE
+               SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
+           )
+           SELECT count(*)::int AS stored FROM ins`,
+          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant],
         );
-        if (rowCount === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
+        if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
         spent.usd += usage.usd ?? 0;
         spent.tokens += usage.tokens ?? 0;
         return JSON.parse(json) as T;
