@@ -6,7 +6,7 @@ An agent-native durable execution engine for TypeScript, backed by Postgres.
 
 Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
 
-Status: **M2 done** (queue with leases, retries, failure classification). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+Status: **M3 done** (queue with leases, retries, failure classification, idempotency keys). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
 
 ## Requirements
 
@@ -51,6 +51,9 @@ worker.start();
 
 const { id } = await engine.enqueue("research", { topic: "durable execution" }, { queue: "agents", maxAttempts: 5 });
 const run = await engine.getRun(id); // status, attempt, result, errors[] (one entry per failed attempt)
+
+// Idempotency: while the key is live (default 24h), the same task and key return the existing run.
+const { id: chargeId, created } = await engine.enqueue("charge", { orderId: 42 }, { idempotencyKey: "order-42" });
 ```
 
 How failures are handled by default (`RuleClassifier` + `defaultPolicy`):
