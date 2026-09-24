@@ -56,7 +56,9 @@ interface Variant {
 async function run(ctx: FailureContext): Promise<Variant> {
   lastAnswer = undefined;
   const verdict = await cascade.classify(ctx);
-  return { jev: lastAnswer?.choice ?? null, jevConfidence: lastAnswer?.confidence ?? null, cascade: verdict.kind };
+  // Set by the recording client during classify; TypeScript cannot see that assignment.
+  const answer = lastAnswer as { choice?: string; confidence?: number } | undefined;
+  return { jev: answer?.choice ?? null, jevConfidence: answer?.confidence ?? null, cascade: verdict.kind };
 }
 
 interface Row {
