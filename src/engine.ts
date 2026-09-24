@@ -42,6 +42,15 @@ export interface RunError {
   attempt: number;
   name: string;
   message: string;
+  /** Step whose function threw, when the failure came from inside a step. */
+  step?: string;
+  /** HTTP status (`status` or `statusCode`) and error code, when the error carried them. */
+  status?: number;
+  code?: string | number;
+  /** The error's cause, as "Name: message". */
+  cause?: string;
+  /** The rejected output attached to the error; replaced by a truncated JSON string when large. */
+  output?: unknown;
   kind: FailureKind;
   confidence: number;
   action: FailureAction;
@@ -745,18 +754,11 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
   async function escalate(
     run: ClaimedRun,
-    error: unknown,
+    ctx: FailureContext,
     verdict: FailureVerdict,
     action: Extract<FailureAction, { type: "escalate" }>,
   ): Promise<void> {
-    const entry: RunError = {
-      attempt: run.attempt,
-      ...serializeError(error),
-      kind: verdict.kind,
-      confidence: verdict.confidence,
-      action,
-      at: new Date().toISOString(),
-    };
+    const entry = errorEntry(run, ctx, verdict, action);
     const name = `escalation-${run.attempt}`;
     const prompt = `"${run.task}" failed on attempt ${run.attempt} and needs a decision: ${action.reason}`;
     // Parking the run and opening the escalation happen in one statement, so neither exists without the other.
@@ -807,21 +809,14 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     }
     const action = decide(verdict, ctx);
     if (action.type === "escalate") {
-      await escalate(run, error, verdict, action);
+      await escalate(run, ctx, verdict, action);
       return;
     }
     const wantsRetry = action.type === "retry" || action.type === "retry_modified";
     const status = !wantsRetry ? "failed" : run.attempt >= run.max_attempts ? "dead" : "queued";
     const delayMs = action.type === "retry" ? action.delayMs : action.type === "retry_modified" ? (action.delayMs ?? 0) : 0;
     const hint = action.type === "retry_modified" && status === "queued" ? action.hint : null;
-    const entry: RunError = {
-      attempt: run.attempt,
-      ...serializeError(error),
-      kind: verdict.kind,
-      confidence: verdict.confidence,
-      action,
-      at: new Date().toISOString(),
-    };
+    const entry = errorEntry(run, ctx, verdict, action);
     await pool.query(
       `UPDATE runs SET
          status = $3,
@@ -996,7 +991,41 @@ function overBudget(spent: Usage, run: ClaimedRun): string | undefined {
   return undefined;
 }
 
-function serializeError(err: unknown): { name: string; message: string } {
-  if (err instanceof Error) return { name: err.name, message: err.message };
-  return { name: "NonError", message: String(err) };
+const OUTPUT_PREVIEW_CHARS = 2000;
+
+function errorEntry(run: ClaimedRun, ctx: FailureContext, verdict: FailureVerdict, action: FailureAction): RunError {
+  return {
+    attempt: run.attempt,
+    ...serializeError(ctx.error),
+    ...(ctx.step !== undefined && { step: ctx.step }),
+    ...(ctx.output !== undefined && { output: previewOutput(ctx.output) }),
+    kind: verdict.kind,
+    confidence: verdict.confidence,
+    action,
+    at: new Date().toISOString(),
+  };
+}
+
+function previewOutput(output: unknown): unknown {
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(output);
+  } catch {
+    return String(output);
+  }
+  if (json === undefined || json.length <= OUTPUT_PREVIEW_CHARS) return output;
+  return `${json.slice(0, OUTPUT_PREVIEW_CHARS)}... (truncated)`;
+}
+
+function serializeError(err: unknown): Pick<RunError, "name" | "message" | "status" | "code" | "cause"> {
+  if (!(err instanceof Error)) return { name: "NonError", message: String(err) };
+  const { status, statusCode, code, cause } = err as Error & { status?: unknown; statusCode?: unknown; code?: unknown };
+  const http = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
+  return {
+    name: err.name,
+    message: err.message,
+    ...(http !== undefined && { status: http }),
+    ...((typeof code === "string" || typeof code === "number") && { code }),
+    ...(cause !== undefined && { cause: cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause) }),
+  };
 }
