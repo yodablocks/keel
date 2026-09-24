@@ -17,13 +17,14 @@
 
 ---
 
-## M1: Queue with leases
+## M1: Queue with leases (done)
 
 - `enqueue(task, payload, opts)` inserts a run
 - Worker loop claims runs with `FOR UPDATE SKIP LOCKED`, sets `lease_owner` and `lease_expires`
 - Heartbeat extends the lease while the handler runs
-- Reaper moves `running` runs with expired leases back to `queued`
-- Graceful shutdown: stop claiming, finish or release in-flight runs
+- Expired leases are reclaimed by the claim query itself (no separate reaper process)
+- Completion is fenced on `lease_owner`, so a zombie worker cannot overwrite a run it lost
+- Graceful shutdown: `stop()` waits for the in-flight run, `stop({ timeoutMs })` releases it back to the queue
 
 **Acceptance:**
 - 1,000 runs, 8 concurrent workers: every run completes exactly once (no double claims, none lost)
