@@ -25,6 +25,7 @@
 - Expired leases are reclaimed by the claim query itself (no separate reaper process)
 - Completion is fenced on `lease_owner`, so a zombie worker cannot overwrite a run it lost
 - Graceful shutdown: `stop()` waits for the in-flight run, `stop({ timeoutMs })` releases it back to the queue
+- A throwing handler marks the run `failed` with `last_error` (no retries yet, that is M2), and database errors never kill the worker loop
 
 **Acceptance:**
 - 1,000 runs, 8 concurrent workers: every run completes exactly once (no double claims, none lost)
@@ -34,6 +35,8 @@
 ---
 
 ## M2: Retries, dead-letter, and the `FailureClassifier` seam
+
+**First, before any schema change:** add a `pnpm db:migrate` script that applies `db/*.sql` in order and records what it applied. Docker only runs `db/schema.sql` on an empty volume, so new SQL files would otherwise never reach an existing database.
 
 - Exponential backoff with full jitter via `run_after`
 - After `max_attempts`, run goes to `dead` with the error history kept
@@ -60,6 +63,7 @@ interface FailureClassifier {
 - A handler that fails twice with a 503 then succeeds completes on attempt 3, with backoff delays in the expected range
 - A handler throwing a validation error does **not** retry 3 times; it goes straight to the policy's action
 - A custom classifier injected in tests fully controls the outcome
+- **Poison pill:** reclaiming an expired lease counts toward `max_attempts`. A handler that crashes its process every time ends up `dead` instead of killing workers forever
 
 ---
 
@@ -145,6 +149,7 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 
 ## Known risks
 
+- After `stop({ timeoutMs })` releases a run, the abandoned handler keeps running in memory while another worker runs the same run. Handlers should get an `AbortSignal` that fires on release. This must be solved by M8, when tool calls have side effects.
 - Incumbents (Trigger.dev, Inngest, Temporal) are adding agent features quickly. Keel's edge is focus on M2, M6, and M7, not breadth.
 - Postgres-as-queue has a throughput ceiling (roughly thousands of jobs/sec). Fine for the target use; say so in the README.
 - M7's value depends on Jev beating rules on real failure data. If it doesn't, that is a finding worth publishing, not hiding.
