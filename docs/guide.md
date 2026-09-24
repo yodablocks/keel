@@ -10,6 +10,7 @@ Reference for every keel feature. For an overview, start with the [README](../RE
 - [Side effects](#side-effects)
 - [Approvals and escalation](#approvals-and-escalation)
 - [Control-flow errors](#control-flow-errors)
+- [Serverless and cron: runOnce](#serverless-and-cron-runonce)
 - [Operations: retention and sweeps](#operations-retention-and-sweeps)
 - [Inspecting runs and the dashboard](#inspecting-runs-and-the-dashboard)
 - [TypeScript notes](#typescript-notes)
@@ -257,6 +258,26 @@ try {
 ```
 
 Swallowing them lets the handler carry on, so a paused run can complete with steps skipped.
+
+## Serverless and cron: runOnce
+
+A long-lived `worker.start()` is optional. Any process can resume any run, so a short-lived one can do the work in slices:
+
+```ts
+// A serverless function with a 30 second timeout, triggered every minute by a scheduler.
+export async function handler() {
+  const worker = engine.createWorker({ queue: "agents", tasks });
+  const result = await worker.runOnce({ deadlineMs: 25_000 });
+  return result; // { claimed, completed, failed, suspended, yielded, lost }
+}
+```
+
+- `runOnce` runs one maintenance pass (the budget sweep, and retention if configured), then claims and executes runs one at a time until nothing is due, `maxRuns` is reached, or the deadline nears.
+- `releaseMarginMs` (default 1s) before the deadline, the current run is **yielded**: released so the next call resumes it from its last stored step. `ctx.signal` aborts, so pass it to your model and API calls.
+- A yield after at least one new step was stored does **not** use up an attempt. A yield without progress does, recorded as `Released`, so a single step that never fits in the deadline ends up `dead` instead of looping.
+- Waits and approvals need nothing special: a waiting run holds no worker, and a later call picks it up when it is due.
+- Keep each step shorter than your deadline. A step interrupted by the deadline re-runs from its start on the next call; use its idempotency key for side effects.
+- A worker is either started or driven by `runOnce`, not both.
 
 ## Operations: retention and sweeps
 
