@@ -423,6 +423,10 @@ const RELEASED_ERROR = `jsonb_build_object(
   'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
   'at', to_jsonb(now()))`;
 
+// Which step's function threw a given error. Keyed on the error object, so an error that a handler
+// catches and rethrows later still points at the step it came from.
+const failedStepOf = new WeakMap<object, string>();
+
 interface ClaimedRun {
   id: string;
   task: string;
@@ -626,7 +630,15 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
           }
         }
 
-        const value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal });
+        let value: T;
+        try {
+          value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal });
+        } catch (stepError) {
+          if (typeof stepError === "object" && stepError !== null && !failedStepOf.has(stepError)) {
+            failedStepOf.set(stepError, name);
+          }
+          throw stepError;
+        }
         const usage = options.usage?.(value) ?? {};
         const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
@@ -775,7 +787,17 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   }
 
   async function recordFailure(run: ClaimedRun, error: unknown): Promise<void> {
-    const ctx: FailureContext = { error, task: run.task, payload: run.payload, attempt: run.attempt, maxAttempts: run.max_attempts };
+    const step = typeof error === "object" && error !== null ? failedStepOf.get(error) : undefined;
+    const output = typeof error === "object" && error !== null ? (error as { output?: unknown }).output : undefined;
+    const ctx: FailureContext = {
+      error,
+      task: run.task,
+      payload: run.payload,
+      attempt: run.attempt,
+      maxAttempts: run.max_attempts,
+      ...(step !== undefined && { step }),
+      ...(output !== undefined && { output }),
+    };
     let verdict: FailureVerdict;
     try {
       verdict = await classifier.classify(ctx);
