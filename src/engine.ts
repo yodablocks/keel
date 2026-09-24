@@ -699,6 +699,19 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     return { step, wait, approval };
   }
 
+  // A broken policy must not strand the run: its error becomes a fail action recorded on the run.
+  function decide(verdict: FailureVerdict, ctx: FailureContext): FailureAction {
+    try {
+      const action = policy(verdict, ctx);
+      const problem = invalidAction(action);
+      if (!problem) return action;
+      throw new Error(problem);
+    } catch (policyError) {
+      console.error(`[keel] ${id} failure policy error, failing the run:`, policyError);
+      return { type: "fail", reason: `Policy error: ${policyError instanceof Error ? policyError.message : String(policyError)}` };
+    }
+  }
+
   async function escalate(
     run: ClaimedRun,
     error: unknown,
@@ -751,7 +764,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       console.error(`[keel] ${id} classifier error, treating failure as fatal:`, classifierError);
       verdict = { kind: "fatal", confidence: 0 };
     }
-    const action = policy(verdict, ctx);
+    const action = decide(verdict, ctx);
     if (action.type === "escalate") {
       await escalate(run, error, verdict, action);
       return;
@@ -832,6 +845,24 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       );
     },
   };
+}
+
+function invalidAction(action: FailureAction | undefined): string | undefined {
+  const validDelay = (ms: unknown) => typeof ms === "number" && Number.isFinite(ms) && ms >= 0;
+  switch (action?.type) {
+    case "retry":
+      return validDelay(action.delayMs) ? undefined : `retry delayMs must be a finite number >= 0, got ${action.delayMs}`;
+    case "retry_modified":
+      return action.delayMs === undefined || validDelay(action.delayMs)
+        ? undefined
+        : `retry_modified delayMs must be a finite number >= 0, got ${action.delayMs}`;
+    case "fallback":
+    case "escalate":
+    case "fail":
+      return undefined;
+    default:
+      return `unknown action ${JSON.stringify(action)}`;
+  }
 }
 
 function toApproval(row: {
