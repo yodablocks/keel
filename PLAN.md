@@ -11,7 +11,7 @@
 | Phase | Milestones | Status |
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
-| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness (done); M13 dashboard, M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
+| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard (done); M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -226,7 +226,7 @@ The two budget features deferred in M6.
 - `engine.setTaskBudget`: `usdPerRun` is a default read at claim time (an explicit run budget wins); `usdPerDay` is enforced by one combined "tenant or task blocked" condition in the claim, the per-step pause and the parking sweep. Task spend is updated in the same statement as the step
 - **Performance finding:** the parking sweep had no usable index and scanned the whole `runs` table (about 170ms per sweep at 72,000 rows in the dev database), blocking claims meanwhile. It showed up as a 2x to 16x benchmark regression during M12. The M10 sweep most likely had the same problem at a smaller table size. Fixed by the `runs_sweepable` partial index: 0.6ms per sweep, benchmark back to its M10 level
 
-## M13: Dashboard
+## M13: Dashboard (done)
 
 A small web UI that makes run state and approvals visible without SQL.
 
@@ -237,6 +237,12 @@ A small web UI that makes run state and approvals visible without SQL.
 - The stack is chosen at the start of the milestone, preferring as few new dependencies as possible
 
 **Acceptance:** an end-to-end test lists a run, shows its steps and errors, and approving an escalation from the UI resumes the run.
+
+**How it was met:**
+- Zero dependencies (chosen over Hono + htmx and React): `node:http`, server-rendered HTML, plain forms, no JavaScript. New engine APIs `listRuns`, `getRunDetail`, and filters on `listPendingApprovals`
+- Security: an HTML template that escapes by default, a CSP without scripts, a per-process form token, an Origin check and a Host check against DNS rebinding. Each guard has a test, and each test was shown to fail with its guard removed
+- Process note: the dashboard was written before its HTTP tests (the engine APIs were test-first); the mutation checks above stand in for the missing red step
+- Checked visually with headless Chrome in light and dark mode, which caught a row animation that replayed on every auto-refresh; screenshots are in `docs/images/`
 
 ## M14: Serverless mode
 
@@ -302,7 +308,9 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 - ~~Steps, waits, expired idempotency keys and `tenant_spend` rows are never cleaned up.~~ Fixed in M10 by `engine.purge` and worker `retention`. Retention is opt-in: without it, tables still grow
 - `purge` deletes in a single statement; purging millions of rows at once holds locks for a long time. Run it often with a short `everyMs` rather than rarely. **Accepted**
 - The parking test compares against the next UTC midnight, so it can fail if it runs across midnight. **Accepted**
-- There is no UI; run state is available through `getRun` and SQL. **M13**
+- ~~There is no UI.~~ Done in M13
+- The dashboard has no authentication. It is safe on loopback only; binding it elsewhere lets anyone who can reach it approve runs. **Accepted: local and internal use only**
+- The dashboard refreshes with a meta refresh every 5 seconds, which reloads the whole page. **Accepted**
 
 ### Classification
 

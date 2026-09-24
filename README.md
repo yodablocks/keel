@@ -34,6 +34,7 @@ keel works out *why* a step failed and acts on it. It treats tokens and dollars 
 | **Human in the loop** | Approvals inside workflows, and escalated failures that wait for a reviewer's decision. |
 | **Safe side effects** | Each step gets a stable idempotency key, so a step re-run after a crash can't charge a card twice. |
 | **Waits and events** | Durable sleeps and waits for external events that free the worker in the meantime. |
+| **Dashboard** | `pnpm dashboard`: a run list, a logbook of each run (steps, costs, errors, decisions), and Approve/Reject for pending approvals. No dependencies, no JavaScript. |
 | **Crash safety** | Postgres `SKIP LOCKED` claims, leases with heartbeats, fenced writes, and dead-lettering of runs that keep crashing their workers. |
 
 ## Quick start
@@ -83,6 +84,20 @@ await engine.enqueue("refund", { orderId: 42, amount: 900 }, { queue: "agents", 
 If the worker crashes after `load-order`, another worker resumes the run without loading the order again. While the run waits for approval it holds no worker at all.
 
 See the **[guide](docs/guide.md)** for every feature: steps, waits, budgets, the classifier, approvals, and the rules that keep replay correct.
+
+## Dashboard
+
+```sh
+pnpm dashboard   # http://127.0.0.1:4400
+```
+
+![Run list with a pending approval](docs/images/dashboard-runs.png)
+
+Each run has a logbook: steps with their cost, failures with how they were classified and what the policy did, and waits and decisions, in the order they happened. Pending approvals and escalations can be decided right there.
+
+![A run waiting for approval](docs/images/dashboard-approval.png)
+
+The dashboard has **no login**. It listens on `127.0.0.1` by default; don't expose it to a network. Pages allow no scripts, forms carry a per-process token, and requests for other hostnames are refused.
 
 ## How it works
 
@@ -152,11 +167,11 @@ keel is an **experimental project**, and the name is not final. All planned mile
 - Idempotency keys protect external calls only for services that accept them.
 - Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
 - A single Postgres instance is the throughput ceiling (thousands of jobs per second).
-- There is no dashboard. Run state is available through `getRun` and SQL.
+- The dashboard has no authentication, so it is for local or internal use only.
 
 The full list is under [Known risks](PLAN.md#known-risks), each tagged with the milestone that addresses it.
 
-**Roadmap:** phase 2 (hardening, classification with step context and budget fallbacks are done; a dashboard, a serverless mode, a benchmark and packaging are next) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
+**Roadmap:** phase 2 (hardening, classification with step context, budget fallbacks and the dashboard are done; a serverless mode, a benchmark and packaging are next) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
 
 ## Development
 
