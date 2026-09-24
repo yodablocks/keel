@@ -69,10 +69,12 @@ interface FailureClassifier {
 
 ---
 
-## M3: Idempotency keys
+## M3: Idempotency keys (done)
 
 - `enqueue(..., { idempotencyKey, ttl })`: a duplicate within the TTL returns the existing run id
-- Unique partial index, race-safe under concurrent enqueue
+- Separate `idempotency_keys` table keyed by (task, key). Taking the key and inserting the run happen in one statement, so concurrent enqueues serialize on the key row
+- `enqueue` returns `{ id, created }`. A live key returns the existing run whatever its status, including `failed` and `dead`
+- Expired keys are taken over by the next enqueue, not deleted
 
 **Acceptance:** 50 concurrent `enqueue` calls with the same key create exactly one run.
 
@@ -150,6 +152,8 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 - Horizontal sharding beyond what a single Postgres handles
 
 ## Known risks
+
+- Expired idempotency keys are never cleaned up, so `idempotency_keys` grows by one row per distinct key. Add a periodic purge of rows past `expires_at` before production use.
 
 - `stop({ timeoutMs })` requeues a released run without checking `maxAttempts` and without an error entry, so a run released on its final attempt gets one extra execution. Fix together with the AbortSignal item below.
 - Each idle poll now runs two queries (poison-pill sweep, then claim). Fine at 50ms polling for a few workers; revisit if idle load matters (for example sweep every N polls).
