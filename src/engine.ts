@@ -231,7 +231,7 @@ export interface WorkerOptions {
 export interface PurgeOptions {
   /** Runs that finished (completed, failed or dead) before this moment are deleted. */
   olderThan: Date;
-  /** Limit to one queue. Without it, tenant daily spend rows before the cutoff are deleted too. */
+  /** Limit to one queue. Without it, tenant and task daily spend rows before the cutoff are deleted too. */
   queue?: string;
 }
 
@@ -453,6 +453,17 @@ const TENANT_OVER_BUDGET = `EXISTS (
     AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
       OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
 
+// True when the run's task has reached a daily limit for the current UTC day. Expects `runs` in scope.
+const TASK_OVER_BUDGET = `EXISTS (
+  SELECT 1 FROM task_budgets b
+  LEFT JOIN task_spend s ON s.task = b.task AND s.day = (now() AT TIME ZONE 'utc')::date
+  WHERE b.task = runs.task
+    AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
+      OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
+
+// A run is held back (deferred, never failed) while its tenant or its task is at a daily limit.
+const BUDGET_BLOCKED = `((runs.tenant IS NOT NULL AND ${TENANT_OVER_BUDGET}) OR ${TASK_OVER_BUDGET})`;
+
 // Error entry for an attempt cut short by stop({ timeoutMs }). It counts toward maxAttempts like any lost attempt.
 const RELEASED_ERROR = `jsonb_build_object(
   'attempt', attempt, 'name', 'Released',
@@ -476,6 +487,7 @@ interface ClaimedRun {
   budget_usd: number | null;
   budget_tokens: number | null;
   fallback: string | null;
+  task_has_daily_budget: boolean;
 }
 
 function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
@@ -515,14 +527,16 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
              OR EXISTS (SELECT 1 FROM waits w WHERE w.run_id = runs.id AND w.resolved_at IS NOT NULL AND w.consumed_at IS NULL)
            ))
          )
-         -- Tenant budgets defer runs instead of failing them. Expired leases are still reclaimed:
-         -- the run pauses at its next step if the tenant is still over.
-         AND (tenant IS NULL OR status = 'running' OR NOT ${TENANT_OVER_BUDGET})
+         -- Tenant and task daily budgets defer runs instead of failing them. Expired leases are still
+         -- reclaimed: the run pauses at its next step if a limit still applies.
+         AND (status = 'running' OR NOT ${BUDGET_BLOCKED})
          ORDER BY run_after
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
        RETURNING id, task, payload, attempt, max_attempts, hint, tenant, fallback,
+         EXISTS (SELECT 1 FROM task_budgets tb WHERE tb.task = runs.task
+                 AND (tb.usd_per_day IS NOT NULL OR tb.tokens_per_day IS NOT NULL)) AS task_has_daily_budget,
          -- A run without its own budget uses its task's default.
          coalesce(budget_usd, (SELECT tb.usd_per_run FROM task_budgets tb WHERE tb.task = runs.task)) AS budget_usd,
          coalesce(budget_tokens, (SELECT tb.tokens_per_run FROM task_budgets tb WHERE tb.task = runs.task)) AS budget_tokens`,
@@ -663,14 +677,14 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
         const over = overBudget(spent, run);
         if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
-        if (run.tenant !== null) {
-          const { rows: tenantRows } = await pool.query<{ over: boolean }>(
-            `SELECT ${TENANT_OVER_BUDGET} AS over FROM runs WHERE id = $1`,
+        if (run.tenant !== null || run.task_has_daily_budget) {
+          const { rows: blocked } = await pool.query<{ tenant: boolean; task: boolean }>(
+            `SELECT (runs.tenant IS NOT NULL AND ${TENANT_OVER_BUDGET}) AS tenant, ${TASK_OVER_BUDGET} AS task
+             FROM runs WHERE id = $1`,
             [run.id],
           );
-          if (tenantRows[0]?.over) {
-            throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
-          }
+          if (blocked[0]?.tenant) throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
+          if (blocked[0]?.task) throw new RunSuspended(null, `Task ${run.task} is at its daily budget before step "${name}"`);
         }
 
         let value: T;
@@ -685,7 +699,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         const usage = options.usage?.(value) ?? {};
         const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
-        // The tenant's daily spend is updated in the same statement, so it can never drift from the steps.
+        // Tenant and task daily spend are updated in the same statement, so they can never drift from the steps.
         const { rows: inserted } = await pool.query<{ stored: number }>(
           `WITH ins AS (
              INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
@@ -698,9 +712,14 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
              SELECT $8, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins WHERE $8::text IS NOT NULL
              ON CONFLICT (tenant, day) DO UPDATE
                SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
+           ), task_spent AS (
+             INSERT INTO task_spend (task, day, usd, tokens)
+             SELECT $9, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins
+             ON CONFLICT (task, day) DO UPDATE
+               SET usd = task_spend.usd + EXCLUDED.usd, tokens = task_spend.tokens + EXCLUDED.tokens
            )
            SELECT count(*)::int AS stored FROM ins`,
-          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant],
+          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant, run.task],
         );
         if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
         spent.usd += usage.usd ?? 0;
@@ -905,7 +924,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
        )`,
       [queue],
     );
-    // Park runs of over-budget tenants until the next UTC midnight, so claims skip them through the index.
+    // Park runs of over-budget tenants and tasks until the next UTC midnight, so claims skip them through the index.
     await pool.query(
       `UPDATE runs SET
          deferred_run_after = run_after,
@@ -913,8 +932,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          updated_at = now()
        WHERE id IN (
          SELECT id FROM runs
-         WHERE queue = $1 AND status IN ('queued', 'waiting') AND tenant IS NOT NULL
-           AND deferred_run_after IS NULL AND ${TENANT_OVER_BUDGET}
+         WHERE queue = $1 AND status IN ('queued', 'waiting')
+           AND deferred_run_after IS NULL AND ${BUDGET_BLOCKED}
          FOR UPDATE SKIP LOCKED
        )`,
       [queue],
@@ -997,6 +1016,7 @@ async function purgeRuns(pool: pg.Pool, { olderThan, queue }: PurgeOptions): Pro
   );
   if (queue === undefined) {
     await pool.query(`DELETE FROM tenant_spend WHERE day < ($1::timestamptz AT TIME ZONE 'utc')::date`, [olderThan]);
+    await pool.query(`DELETE FROM task_spend WHERE day < ($1::timestamptz AT TIME ZONE 'utc')::date`, [olderThan]);
   }
   return { runs: rows[0]!.runs };
 }
