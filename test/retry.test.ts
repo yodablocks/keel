@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BadOutputError, createEngine, defaultPolicy } from "../src/index.ts";
+import { BadOutputError, createEngine, defaultPolicy, NeedsHumanError } from "../src/index.ts";
 import type { FailureClassifier } from "../src/index.ts";
 import { DATABASE_URL, uniqueQueue } from "./helpers/db.ts";
 import { waitFor } from "./helpers/wait.ts";
@@ -161,4 +161,27 @@ test("a custom classifier fully controls the outcome", async (t) => {
 
   assert.equal(run.status, "completed");
   assert.equal(run.errors[0]?.kind, "transient");
+});
+
+test("a run that needs a human is escalated once, not retried", async (t) => {
+  const { engine, queue, workers } = setup(t);
+  let calls = 0;
+  const worker = engine.createWorker({
+    queue,
+    tasks: {
+      refund: async () => {
+        calls++;
+        throw new NeedsHumanError("refund of $900 is over the $500 auto-approve limit");
+      },
+    },
+  });
+  workers.push(worker);
+  worker.start();
+
+  const { id } = await engine.enqueue("refund", {}, { queue, maxAttempts: 3 });
+  const run = await settled(engine, id);
+
+  assert.equal(run.status, "failed");
+  assert.equal(calls, 1);
+  assert.deepEqual(run.errors[0]?.action, { type: "escalate", reason: "refund of $900 is over the $500 auto-approve limit" });
 });
