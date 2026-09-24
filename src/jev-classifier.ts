@@ -8,7 +8,8 @@ const FAILURE_KIND_QUESTION = {
   type: "choice",
   instructions:
     "A step of an automated job, often an AI agent, failed with `error`. Decide what kind of failure it is, " +
-    "so the job engine can retry, retry with a correction, stop, or ask a person. Judge from `error`, `task` and `payload`.",
+    "so the job engine can retry, retry with a correction, stop, or ask a person. Judge from `error`, `task` and `payload`, " +
+    "and from `step` (the step that was running) and `output` (what the model or tool produced) when present.",
   criteria: {
     transient:
       "A temporary problem outside the job: rate limits, timeouts, overloaded or unavailable services, dropped connections. " +
@@ -95,9 +96,10 @@ export class JevClassifier implements FailureClassifier {
 function describeFailure(ctx: FailureContext) {
   const err = ctx.error;
   const fields = err instanceof Error ? (err as Error & { status?: unknown; statusCode?: unknown; code?: unknown }) : undefined;
-  const payload = JSON.stringify(ctx.payload) ?? "null";
+  const payload = safeJson(ctx.payload);
   return {
     task: ctx.task,
+    ...(ctx.step !== undefined && { step: ctx.step }),
     attempt: `${ctx.attempt} of ${ctx.maxAttempts}`,
     error: {
       name: fields?.name ?? typeof err,
@@ -107,8 +109,21 @@ function describeFailure(ctx: FailureContext) {
       ...(fields?.code !== undefined && { code: fields.code }),
       ...(fields?.cause !== undefined && { cause: describeCause(fields.cause) }),
     },
-    payload: payload.length > PAYLOAD_PREVIEW_CHARS ? `${payload.slice(0, PAYLOAD_PREVIEW_CHARS)}... (truncated)` : payload,
+    payload: preview(payload),
+    ...(ctx.output !== undefined && { output: preview(safeJson(ctx.output)) }),
   };
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value); // circular or otherwise unserializable
+  }
+}
+
+function preview(json: string): string {
+  return json.length > PAYLOAD_PREVIEW_CHARS ? `${json.slice(0, PAYLOAD_PREVIEW_CHARS)}... (truncated)` : json;
 }
 
 function describeCause(cause: unknown): string {

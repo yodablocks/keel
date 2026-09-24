@@ -29,7 +29,7 @@ keel works out *why* a step failed and acts on it. It treats tokens and dollars 
 |---|---|
 | **Durable steps** | `ctx.step.run()` stores each step's result. After a crash or retry, completed steps replay from storage instead of running again. |
 | **Failure classification** | Every failure is classified as `transient`, `bad_input`, `bad_output`, `needs_human`, `over_budget` or `fatal`, and a policy picks the action: back off, retry with a corrective hint, fail, or escalate. |
-| **Jev classifier** | An optional classifier that reads error *messages*, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model, with a rule-based fallback. |
+| **Jev classifier** | An optional classifier that reads error *messages*, the failing step and the rejected model output, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model, with a rule-based fallback. |
 | **Budgets** | Per-run budgets stop a run before its next step. Tenant daily budgets defer runs instead of failing them. |
 | **Human in the loop** | Approvals inside workflows, and escalated failures that wait for a reviewer's decision. |
 | **Safe side effects** | Each step gets a stable idempotency key, so a step re-run after a crash can't charge a card twice. |
@@ -129,17 +129,20 @@ The full recording, made with real Jev, is in [docs/demo-transcript.txt](docs/de
 
 ## Failure classification: rules vs Jev
 
-`pnpm eval:classifier` on 30 hand-labelled agent failures (`jev-latest`, September 2026):
+`pnpm eval:classifier` on 30 hand-labelled agent failures, `jev-latest`, September 2026:
 
-| Classifier | Accuracy |
-|---|---|
-| Rules only (status codes, error codes, error classes) | 14 / 30 (47%) |
-| Jev | 29 / 30 (97%) |
-| keel cascade (rules for explicit signals, Jev for the rest, rules below 0.5 confidence) | 29 / 30 (97%) |
+| Classifier | First run (M7) | Latest run (M11) |
+|---|---|---|
+| Rules only (status codes, error codes, error classes) | 14 / 30 (47%) | 14 / 30 (47%) |
+| Jev, error and task only | 29 / 30 (97%) | 30 / 30 (100%) |
+| Jev with the failing step and model output | | 30 / 30 (100%) |
+| keel cascade (rules for explicit signals, Jev for the rest, rules below 0.5 confidence) | 29 / 30 (97%) | 30 / 30 (100%) |
 
-Rules can only read status and error codes; Jev also reads the message. The single miss is a genuinely ambiguous tool-argument error.
+- Rules can only read status and error codes; Jev also reads the message, and since M11 the step that failed and what the model produced.
+- The M7 miss, an ambiguous tool-argument error, is classified correctly in the latest run even **without** step context, so the fix can't be credited to context alone. The M7 run did not record the concrete model version behind `jev-latest`, so a model update can't be ruled out; runs now record it.
+- What step context measurably changes is confidence: on that ambiguous case it rose from 0.60 to 0.75, it rose on every `bad_output` case, and the mean across all 30 went from 0.90 to 0.92 (up on 9 cases, down on 4).
 
-**Caveat:** the eval set is synthetic, and it was written and labelled by the same author as the classifier prompt. It shows the mechanism works, not how it will perform on your production failures. Full results are in [`eval-results/`](eval-results/).
+**Caveat:** the eval set is synthetic, and it was written and labelled by the same author as the classifier prompt. At 100% it is also too easy to show further gains. It shows the mechanism works, not how it will perform on your production failures. To build a real set, `pnpm eval:export` writes your runs' actual failures to a file for labelling, and `pnpm eval:classifier --cases <file>` scores it. Full results are in [`eval-results/`](eval-results/).
 
 ## Status and limitations
 

@@ -133,10 +133,36 @@ const worker = engine.createWorker({
 It is a cascade:
 
 1. Explicit signals (keel error classes like `BadOutputError`, `OverBudgetError`) are classified by rules. No API call.
-2. Everything else is one Jev Choice question over `transient / bad_input / bad_output / needs_human / fatal`, given the task, attempt, error (name, message, status, code, cause) and a truncated payload.
+2. Everything else is one Jev Choice question over `transient / bad_input / bad_output / needs_human / fatal`, given the task, the failing step, the attempt, the error (name, message, status, code, cause), the rejected output and a truncated payload.
 3. If Jev's confidence is below `minConfidence`, or the call fails, the rule verdict is used. A TypeSafe outage never breaks failure handling.
 
-Accuracy on a labelled failure set is in the [README](../README.md#failure-classification-rules-vs-jev).
+### Give the classifier context
+
+keel records which step's function threw. Attach what the model produced to the error, so both the classifier and the run's error history see it:
+
+```ts
+const reply = await ctx.step.run("choose-tool", async () => {
+  const reply = await callModel(prompt);
+  if (!TOOLS.includes(reply.tool)) {
+    throw new BadOutputError(`unknown tool "${reply.tool}"`, { output: reply });
+  }
+  return reply;
+});
+```
+
+Any error with an `output` property works the same way. Each entry in `run.errors` keeps `step`, `status`, `code`, `cause` and `output` (large outputs are stored as a truncated JSON string).
+
+### Build an eval set from real failures
+
+```sh
+pnpm eval:export --queue agents --since 2026-09-01   # writes eval-results/exported-<date>.json
+# set each case's "label" to the kind a person would choose
+pnpm eval:classifier --cases eval-results/exported-<date>.json
+```
+
+Each exported case includes `recordedKind`, what keel decided at the time, for reference. Don't copy it into `label`: that would score the classifier against itself. Unlabelled cases are skipped. Engine-generated entries (`LeaseExpired`, `Released`) are not exported.
+
+Accuracy on the synthetic set is in the [README](../README.md#failure-classification-rules-vs-jev).
 
 ## Side effects
 

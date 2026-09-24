@@ -11,7 +11,7 @@
 | Phase | Milestones | Status |
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
-| 2. Production readiness | M10 hardening (done); M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
+| 2. Production readiness | M10 hardening, M11 classification context (done); M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -192,7 +192,7 @@ Close the correctness bugs and unbounded growth found during phase 1.
 - A periodic sweep (`sweepEveryMs`, default 1s) replaces the per-claim poison-pill query and parks over-budget tenants' runs at the next UTC midnight; `setTenantBudget` releases them
 - `pnpm bench:deferred`, 4 workers, 300 runs of another tenant, three runs each: no deferred runs 125 to 139 ms; 10,000 deferred with parking off 189 to 190 ms (about 37% slower); parked 136 to 186 ms, with the 186 an outlier on the first run and 136 to 144 ms after. The old risk was real but milder than feared at 10,000 runs
 
-## M11: Classification with step context
+## M11: Classification with step context (done)
 
 The one M7 eval miss was ambiguous because the classifier could not see which step failed or what the model produced.
 
@@ -204,6 +204,11 @@ The one M7 eval miss was ambiguous because the classifier could not see which st
 - A unit test shows the step name and output reach the classifier state
 - With step context, the eval classifies the tool-argument case correctly, and overall accuracy does not drop (numbers recorded in the README)
 - An exported file is accepted by `pnpm eval:classifier` unchanged
+
+**How it was met:**
+- The engine tags the error thrown by a step function with the step's name; errors carry `output` via `KeelError` options or an `output` property. Both reach `FailureContext`, the Jev state and the error history, which now also keeps `status`, `code` and `cause`
+- `pnpm eval:export` and `pnpm eval:classifier --cases`, with a round-trip test from a real failed run
+- The fixture gained a step for all 30 cases and model output for 7 (not just the missed case). Eval, 60 Jev calls: rules 14/30; Jev and the cascade 30/30 both **with and without** step context. The tool-argument case is now correct, but also without context, so the fix can't be credited to context; the M7 run did not record the concrete model version, so a model update can't be ruled out. Context raised confidence on that case from 0.60 to 0.75 and on every `bad_output` case (mean 0.90 to 0.92)
 
 ## M12: Budget completeness
 
@@ -294,7 +299,7 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 
 ### Classification
 
-- The M7 eval set is synthetic and labelled by the classifier's author. Its numbers show the mechanism works, not production accuracy. Replace it with real failures before tuning `minConfidence`. **M11**
+- The eval set is synthetic and labelled by the classifier's author, and at 100% it is too easy to show gains. M11 added the tooling to build a real set (`pnpm eval:export`); the set itself needs real failures and a person to label them. **Open: needs real data**
 - Jev adds one API round trip to each failure without an explicit signal, about 650 input tokens per call on the eval set. **Accepted**
 
 ### Strategy

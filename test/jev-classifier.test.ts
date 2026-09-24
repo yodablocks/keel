@@ -77,3 +77,17 @@ test("the error's cause is sent to Jev, since fetch hides network errors behind 
 
   assert.match(JSON.stringify(requests[0]!.state), /ECONNREFUSED 10\.0\.0\.5:443/);
 });
+
+test("Jev is told which step failed and what the model produced", async () => {
+  const { client, requests } = fakeClient({ bad_output: 0.9, bad_input: 0.1 }, 0.8);
+
+  await new JevClassifier({ client }).classify({
+    ...ctx(new Error("Tool call arguments failed validation: missing required property 'query'")),
+    step: "choose-tool",
+    output: { tool: "search_web", arguments: {} },
+  });
+
+  const state = requests[0]!.state as { step?: unknown; output?: unknown };
+  assert.equal(state.step, "choose-tool");
+  assert.match(String(state.output), /"tool":"search_web"/);
+});

@@ -7,6 +7,10 @@ export interface FailureContext {
   /** The attempt that just failed, starting at 1. */
   attempt: number;
   maxAttempts: number;
+  /** Name of the step whose function threw, when the failure came from inside a step. */
+  step?: string;
+  /** Output the handler rejected, attached to the error as `output` (see KeelErrorOptions). */
+  output?: unknown;
 }
 
 export interface FailureVerdict {
@@ -19,23 +23,38 @@ export interface FailureClassifier {
   classify(ctx: FailureContext): Promise<FailureVerdict>;
 }
 
+export interface KeelErrorOptions {
+  /** What the model or tool produced, shown to the classifier and stored in the run's error history. */
+  output?: unknown;
+  cause?: unknown;
+}
+
+/** Base for keel's explicit failure signals. Any error with an `output` property is treated the same way. */
+export class KeelError extends Error {
+  readonly output: unknown;
+  constructor(message: string, options: KeelErrorOptions = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.output = options.output;
+  }
+}
+
 /** Throw from a handler when its input can never succeed, whatever the retry. */
-export class BadInputError extends Error {
+export class BadInputError extends KeelError {
   override name = "BadInputError";
 }
 
 /** Throw from a handler when a model or tool produced unusable output (hallucinated tool, malformed JSON). */
-export class BadOutputError extends Error {
+export class BadOutputError extends KeelError {
   override name = "BadOutputError";
 }
 
 /** Throw from a handler when a person has to decide before the run can continue. */
-export class NeedsHumanError extends Error {
+export class NeedsHumanError extends KeelError {
   override name = "NeedsHumanError";
 }
 
 /** Thrown by ctx.step.run before a new step when the run has spent its budget. */
-export class OverBudgetError extends Error {
+export class OverBudgetError extends KeelError {
   override name = "OverBudgetError";
 }
 
