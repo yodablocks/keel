@@ -48,3 +48,25 @@ test("an approved request resumes the run with the reviewer's decision", async (
   assert.equal((await engine.listPendingApprovals()).filter((a) => a.runId === id).length, 0);
   assert.deepEqual(requested.map((a) => [a.runId, a.name]), [[id, "refund-ok"]], "notified once, not again on replay");
 });
+
+test("a rejected request resumes the run with the rejection", async (t) => {
+  const { engine, queue } = setup(t, { refund: refund() });
+
+  const { id } = await engine.enqueue("refund", { amount: 900 }, { queue });
+  await status(engine, id, "waiting");
+  await engine.resolveApproval(id, "refund-ok", { approved: false, by: "bob", comment: "outside policy" });
+  const run = await status(engine, id, "completed");
+
+  assert.deepEqual(run.result, { status: "rejected", by: "bob", comment: "outside policy" });
+});
+
+test("an approval nobody answers times out, and a late decision is refused", async (t) => {
+  const { engine, queue } = setup(t, { refund: refund(300) });
+
+  const { id } = await engine.enqueue("refund", { amount: 900 }, { queue });
+  const run = await status(engine, id, "completed");
+  const late = await engine.resolveApproval(id, "refund-ok", { approved: true, by: "alice" });
+
+  assert.deepEqual(run.result, { status: "timed_out" });
+  assert.equal(late.resolved, false);
+});
