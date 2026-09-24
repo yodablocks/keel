@@ -73,13 +73,55 @@ export interface EnqueueResult {
   created: boolean;
 }
 
+export interface StepCall {
+  /**
+   * `keel:<runId>:<stepName>`: identical on every attempt and every worker. Pass it to external APIs
+   * (Stripe, email providers) so a step re-run after a crash cannot repeat the side effect.
+   */
+  idempotencyKey: string;
+  /** Same as ctx.signal. */
+  signal: AbortSignal;
+}
+
 export interface StepApi {
   /**
    * Runs fn once per run. After it succeeds its result is stored, and later attempts get the stored
    * result without calling fn. Results are JSON round-tripped, on the first run too, so a Date comes
    * back as a string either way. Names must be unique within a run.
    */
-  run<T>(name: string, fn: () => T | Promise<T>, options?: StepOptions<T>): Promise<T>;
+  run<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options?: StepOptions<T>): Promise<T>;
+}
+
+export interface ApprovalRequest {
+  /** Shown to the reviewer. */
+  prompt: string;
+  /** No decision in this time resolves the request as timed_out. Defaults to never. */
+  timeoutMs?: number;
+}
+
+export type ApprovalResult =
+  | { status: "approved" | "rejected"; by?: string; comment?: string }
+  | { status: "timed_out" };
+
+export interface ApprovalApi {
+  /** Suspends the run until a person calls engine.resolveApproval(runId, name, ...) or the timeout. */
+  request(name: string, request: ApprovalRequest): Promise<ApprovalResult>;
+}
+
+export interface Approval {
+  runId: string;
+  name: string;
+  task: string;
+  prompt: string;
+  requestedAt: Date;
+  /** Null when the request never times out. */
+  expiresAt: Date | null;
+}
+
+export interface ApprovalDecision {
+  approved: boolean;
+  by?: string;
+  comment?: string;
 }
 
 export type EventWaitResult = { timedOut: false; payload: unknown } | { timedOut: true };
@@ -126,6 +168,12 @@ export interface TaskContext {
   hint?: string;
   step: StepApi;
   wait: WaitApi;
+  approval: ApprovalApi;
+  /**
+   * Aborts when this worker no longer owns the run: it was released by stop({ timeoutMs }), or a
+   * heartbeat found another worker took it over. Pass it to fetch and SDK calls to stop work early.
+   */
+  signal: AbortSignal;
 }
 
 export type TaskHandler = (payload: unknown, ctx: TaskContext) => Promise<unknown>;
@@ -139,6 +187,16 @@ export interface WorkerOptions {
   pollMs?: number;
   classifier?: FailureClassifier;
   policy?: FailurePolicy;
+  /**
+   * Called once when a run first requests approval (not on replays). Use it to notify a reviewer,
+   * for example in Slack or by email. Errors are logged and do not affect the run.
+   */
+  onApprovalRequested?: (approval: Approval) => Promise<void> | void;
+  /**
+   * When the policy escalates a failure, the run waits this long for engine.resolveApproval before
+   * failing. Approval retries it once more with the reviewer's comment as ctx.hint. Defaults to 24 hours.
+   */
+  escalationTimeoutMs?: number;
 }
 
 export interface StopOptions {
@@ -163,6 +221,10 @@ export interface Engine {
    * limit its runs are deferred: queued runs are not claimed and running runs pause at their next step.
    */
   setTenantBudget(tenant: string, budget: TenantBudget): Promise<void>;
+  /** Approval requests that are still waiting for a decision, oldest first. */
+  listPendingApprovals(): Promise<Approval[]>;
+  /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
+  resolveApproval(runId: string, name: string, decision: ApprovalDecision): Promise<{ resolved: boolean }>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
   sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
   createWorker(options: WorkerOptions): Worker;
@@ -251,6 +313,27 @@ export function createEngine(options: EngineOptions): Engine {
       );
     },
 
+    async listPendingApprovals() {
+      const { rows } = await pool.query(
+        `SELECT w.run_id, w.name, r.task, w.prompt, w.created_at,
+                CASE WHEN w.wake_at = 'infinity' THEN NULL ELSE w.wake_at END AS expires_at
+         FROM waits w JOIN runs r ON r.id = w.run_id
+         WHERE w.kind IN ('approval', 'escalation') AND w.resolved_at IS NULL AND w.consumed_at IS NULL
+         ORDER BY w.created_at`,
+      );
+      return rows.map(toApproval);
+    },
+
+    async resolveApproval(runId, name, decision) {
+      const { rowCount } = await pool.query(
+        `UPDATE waits SET resolved_at = now(), payload = $3
+         WHERE run_id = $1 AND name = $2 AND kind IN ('approval', 'escalation')
+           AND resolved_at IS NULL AND consumed_at IS NULL`,
+        [runId, name, JSON.stringify(decision)],
+      );
+      return { resolved: (rowCount ?? 0) > 0 };
+    },
+
     async sendEvent(eventName, payload) {
       const { rowCount } = await pool.query(
         `UPDATE waits SET resolved_at = now(), payload = $2
@@ -305,11 +388,12 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   const leaseMs = options.leaseMs ?? 30_000;
   const heartbeatMs = options.heartbeatMs ?? Math.floor(leaseMs / 3);
   const pollMs = options.pollMs ?? 50;
+  const escalationTimeoutMs = options.escalationTimeoutMs ?? 24 * 60 * 60 * 1000;
   const classifier = options.classifier ?? new RuleClassifier();
   const policy = options.policy ?? defaultPolicy();
   let running = false;
   let loop: Promise<void> | undefined;
-  let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean } | undefined;
+  let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean; abort: AbortController } | undefined;
 
   async function claim(): Promise<ClaimedRun | undefined> {
     // Poison pill guard: a run whose final attempt lost its lease goes dead instead of being claimed again.
@@ -361,8 +445,47 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     return rows[0];
   }
 
+  // A run parked by an escalation resumes here once a person decided or the escalation timed out.
+  // Returns false when the run must not execute (rejected or timed out).
+  async function applyEscalationDecision(run: ClaimedRun): Promise<boolean> {
+    const { rows } = await pool.query<{ resolved: boolean; payload: ApprovalDecision | null }>(
+      `UPDATE waits SET consumed_at = now()
+       WHERE run_id = $1 AND kind = 'escalation' AND consumed_at IS NULL
+         AND (resolved_at IS NOT NULL OR wake_at <= now())
+       RETURNING resolved_at IS NOT NULL AS resolved, payload`,
+      [run.id],
+    );
+    const decision = rows[0];
+    if (!decision) return true;
+
+    if (decision.resolved && decision.payload?.approved) {
+      // Approval grants one more attempt, even past maxAttempts.
+      const hint = decision.payload.comment ?? `Approved by ${decision.payload.by ?? "a reviewer"}`;
+      const { rows: updated } = await pool.query<{ attempt: number; max_attempts: number }>(
+        `UPDATE runs SET attempt = attempt + 1, max_attempts = GREATEST(max_attempts, attempt + 1), hint = $3, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2
+         RETURNING attempt, max_attempts`,
+        [run.id, id, hint],
+      );
+      if (!updated[0]) return false;
+      run.attempt = updated[0].attempt;
+      run.max_attempts = updated[0].max_attempts;
+      run.hint = hint;
+      return true;
+    }
+
+    await pool.query(
+      `UPDATE runs SET status = 'failed', lease_owner = NULL, lease_expires = NULL, updated_at = now()
+       WHERE id = $1 AND lease_owner = $2`,
+      [run.id, id],
+    );
+    return false;
+  }
+
   async function execute(run: ClaimedRun): Promise<void> {
+    if (!(await applyEscalationDecision(run))) return;
     const handler = options.tasks[run.task];
+    const abort = new AbortController();
     const heartbeat = setInterval(() => {
       pool
         .query(
@@ -370,12 +493,18 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
            WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
           [run.id, id, leaseMs],
         )
+        .then(({ rowCount }) => {
+          if (rowCount === 0) {
+            clearInterval(heartbeat);
+            abort.abort(new LeaseLostError(`Worker ${id} lost the lease on run ${run.id}`));
+          }
+        })
         .catch(() => {
           // A missed heartbeat is survivable: the next one may land before the lease expires.
         });
     }, heartbeatMs);
     heartbeat.unref();
-    const current = { run, heartbeat, released: false };
+    const current = { run, heartbeat, released: false, abort };
     inFlight = current;
     let result: unknown;
     let error: unknown;
@@ -386,7 +515,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         runId: run.id,
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
-        ...(await createContextApis(run)),
+        ...(await createContextApis(run, abort.signal)),
+        signal: abort.signal,
       });
     } catch (err) {
       threw = true;
@@ -422,7 +552,10 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     );
   }
 
-  async function createContextApis(run: ClaimedRun): Promise<{ step: StepApi; wait: WaitApi }> {
+  async function createContextApis(
+    run: ClaimedRun,
+    signal: AbortSignal,
+  ): Promise<{ step: StepApi; wait: WaitApi; approval: ApprovalApi }> {
     const { rows } = await pool.query<{ name: string; result: unknown; usd: number; tokens: number }>(
       `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
       [run.id],
@@ -436,7 +569,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     const seen = new Set<string>();
 
     const step: StepApi = {
-      async run<T>(name: string, fn: () => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
+      async run<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
         if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
         seen.add(name);
         if (stored.has(name)) return stored.get(name) as T;
@@ -453,7 +586,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
           }
         }
 
-        const value = await fn();
+        const value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal });
         const usage = options.usage?.(value) ?? {};
         const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
@@ -483,17 +616,31 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
     // Registers the wait on first call and suspends. On replay, returns the outcome once it is final:
     // consuming the row decides between "event arrived" and "timed out" atomically.
-    async function awaitWait(name: string, eventName: string | null, timeoutMs: number | undefined): Promise<EventWaitResult> {
+    async function awaitWait(
+      name: string,
+      eventName: string | null,
+      timeoutMs: number | undefined,
+      approvalPrompt?: string,
+    ): Promise<EventWaitResult> {
       if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
       seen.add(name);
 
-      await pool.query(
-        `INSERT INTO waits (run_id, name, event_name, wake_at)
+      const { rows: created } = await pool.query(
+        `INSERT INTO waits (run_id, name, event_name, wake_at, kind, prompt)
          VALUES ($1, $2, $3, CASE WHEN $4::double precision IS NULL THEN 'infinity'::timestamptz
-                                  ELSE now() + make_interval(secs => $4::double precision / 1000) END)
-         ON CONFLICT (run_id, name) DO NOTHING`,
-        [run.id, name, eventName, timeoutMs ?? null],
+                                  ELSE now() + make_interval(secs => $4::double precision / 1000) END,
+                 $5, $6)
+         ON CONFLICT (run_id, name) DO NOTHING
+         RETURNING run_id, name, prompt, created_at, CASE WHEN wake_at = 'infinity' THEN NULL ELSE wake_at END AS expires_at`,
+        [run.id, name, eventName, timeoutMs ?? null, approvalPrompt === undefined ? "wait" : "approval", approvalPrompt ?? null],
       );
+      if (created[0] && approvalPrompt !== undefined && options.onApprovalRequested) {
+        try {
+          await options.onApprovalRequested(toApproval({ ...created[0], task: run.task }));
+        } catch (hookError) {
+          console.error(`[keel] ${id} onApprovalRequested failed:`, hookError);
+        }
+      }
       const { rows } = await pool.query<{ resolved: boolean; payload: unknown }>(
         `UPDATE waits SET consumed_at = coalesce(consumed_at, now())
          WHERE run_id = $1 AND name = $2
@@ -515,7 +662,63 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       },
     };
 
-    return { step, wait };
+    const approval: ApprovalApi = {
+      async request(name, request) {
+        const outcome = await awaitWait(name, null, request.timeoutMs, request.prompt);
+        if (outcome.timedOut) return { status: "timed_out" };
+        const decision = outcome.payload as ApprovalDecision;
+        return {
+          status: decision.approved ? "approved" : "rejected",
+          ...(decision.by !== undefined && { by: decision.by }),
+          ...(decision.comment !== undefined && { comment: decision.comment }),
+        };
+      },
+    };
+
+    return { step, wait, approval };
+  }
+
+  async function escalate(
+    run: ClaimedRun,
+    error: unknown,
+    verdict: FailureVerdict,
+    action: Extract<FailureAction, { type: "escalate" }>,
+  ): Promise<void> {
+    const entry: RunError = {
+      attempt: run.attempt,
+      ...serializeError(error),
+      kind: verdict.kind,
+      confidence: verdict.confidence,
+      action,
+      at: new Date().toISOString(),
+    };
+    const name = `escalation-${run.attempt}`;
+    const prompt = `"${run.task}" failed on attempt ${run.attempt} and needs a decision: ${action.reason}`;
+    // Parking the run and opening the escalation happen in one statement, so neither exists without the other.
+    const { rows } = await pool.query(
+      `WITH parked AS (
+         UPDATE runs SET
+           status = 'waiting',
+           run_after = now() + make_interval(secs => $5::double precision / 1000),
+           last_error = $3::jsonb,
+           errors = errors || jsonb_build_array($3::jsonb),
+           lease_owner = NULL, lease_expires = NULL, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2
+         RETURNING id
+       )
+       INSERT INTO waits (run_id, name, kind, prompt, wake_at)
+       SELECT id, $4, 'escalation', $6, now() + make_interval(secs => $5::double precision / 1000) FROM parked
+       ON CONFLICT (run_id, name) DO NOTHING
+       RETURNING run_id, name, prompt, created_at, wake_at AS expires_at`,
+      [run.id, id, JSON.stringify(entry), name, escalationTimeoutMs, prompt],
+    );
+    if (rows[0] && options.onApprovalRequested) {
+      try {
+        await options.onApprovalRequested(toApproval({ ...rows[0], task: run.task }));
+      } catch (hookError) {
+        console.error(`[keel] ${id} onApprovalRequested failed:`, hookError);
+      }
+    }
   }
 
   async function recordFailure(run: ClaimedRun, error: unknown): Promise<void> {
@@ -528,6 +731,10 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       verdict = { kind: "fatal", confidence: 0 };
     }
     const action = policy(verdict, ctx);
+    if (action.type === "escalate") {
+      await escalate(run, error, verdict, action);
+      return;
+    }
     const wantsRetry = action.type === "retry" || action.type === "retry_modified";
     const status = !wantsRetry ? "failed" : run.attempt >= run.max_attempts ? "dead" : "queued";
     const delayMs = action.type === "retry" ? action.delayMs : action.type === "retry_modified" ? (action.delayMs ?? 0) : 0;
@@ -592,6 +799,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       const stuck = inFlight;
       stuck.released = true;
       clearInterval(stuck.heartbeat);
+      stuck.abort.abort(new LeaseLostError(`Worker ${id} released run ${stuck.run.id} during shutdown`));
       await pool.query(
         `UPDATE runs SET status = 'queued', lease_owner = NULL, lease_expires = NULL, updated_at = now()
          WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
@@ -599,6 +807,17 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       );
     },
   };
+}
+
+function toApproval(row: {
+  run_id: string;
+  name: string;
+  task: string;
+  prompt: string;
+  created_at: Date;
+  expires_at: Date | null;
+}): Approval {
+  return { runId: row.run_id, name: row.name, task: row.task, prompt: row.prompt, requestedAt: row.created_at, expiresAt: row.expires_at };
 }
 
 function overBudget(spent: Usage, run: ClaimedRun): string | undefined {

@@ -6,7 +6,7 @@ An agent-native durable execution engine for TypeScript, backed by Postgres.
 
 Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
 
-Status: **M7 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets, Jev classifier). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+Status: **M8 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets, Jev classifier, safe side effects, approvals). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
 
 ## Requirements
 
@@ -63,7 +63,7 @@ How failures are handled by default (`RuleClassifier` + `defaultPolicy`):
 | HTTP 408/429/5xx, network timeouts and resets | transient | retry with exponential backoff and full jitter |
 | `BadOutputError` | bad_output | retry at once, with the error passed as `ctx.hint` |
 | HTTP 400/422, `ZodError`, `BadInputError` | bad_input | fail, no retry |
-| `NeedsHumanError` | needs_human | escalate (for now: fail with the reason recorded) |
+| `NeedsHumanError` | needs_human | escalate to a person (see [Approvals and escalation](#approvals-and-escalation)) |
 | anything else | fatal | fail, no retry |
 | worker crashed or lost its lease | transient | retry, recorded as `LeaseExpired` |
 
@@ -127,7 +127,7 @@ tasks: {
 (await engine.getRun(id)).usage; // { usd, tokens }
 ```
 
-- **Per-run budget:** checked before each new step. A run over its budget fails as `over_budget`, which the default policy escalates.
+- **Per-run budget:** checked before each new step. A run over its budget stops as `over_budget`, which the default policy escalates to a person.
 - **Tenant daily budget** (UTC day): the tenant's runs are deferred, not failed. Queued runs wait, and running runs pause as `waiting` at their next step. They continue the next day, or as soon as you raise the limit.
 - Budgets can overshoot by up to one step, because a step's cost is known only after it runs.
 
@@ -166,6 +166,47 @@ It is a cascade:
 - 3 of 30 answers were below the 0.5 threshold. The other two were `fatal` cases where rules agreed.
 - Cost: 30 calls, 19,613 input and 1,768 output tokens in total.
 - **Caveat:** the cases are synthetic and were written and labelled by the same author as the classifier question, and 16 of 30 carry their meaning only in the message text, where rules cannot win. This shows the mechanism works; measure it on your own production failures before relying on the numbers. Full results: `eval-results/classifier-2026-09-24T06-04-37.json`.
+
+## Side effects
+
+Every step function receives an idempotency key that is the same on every attempt and every worker:
+
+```ts
+await ctx.step.run("charge", ({ idempotencyKey, signal }) =>
+  stripe.paymentIntents.create({ amount: 90000, currency: "usd" }, { idempotencyKey }),
+);
+```
+
+If a worker crashes after the charge but before keel stores the result, the step runs again, with the same key, and the payment API returns the first charge instead of making a second. keel cannot tell whether the first call arrived, so this only protects services that accept idempotency keys.
+
+`ctx.signal` (also passed to steps) aborts when this worker no longer owns the run. Pass it to `fetch` and SDK calls.
+
+## Approvals and escalation
+
+```ts
+tasks: {
+  refund: async ({ orderId, amount }, ctx) => {
+    const decision = await ctx.approval.request("refund-ok", {
+      prompt: `Approve a refund of $${amount} for order ${orderId}?`,
+      timeoutMs: 24 * 3600_000,
+    });
+    if (decision.status !== "approved") return decision.status; // "rejected" or "timed_out"
+    return ctx.step.run("refund", ({ idempotencyKey }) => issueRefund(orderId, amount, idempotencyKey));
+  },
+}
+
+const worker = engine.createWorker({
+  queue: "payments",
+  tasks,
+  onApprovalRequested: (a) => slack.post(`#approvals`, `${a.prompt} (run ${a.runId})`),
+});
+
+// reviewer side
+const pending = await engine.listPendingApprovals();
+await engine.resolveApproval(runId, "refund-ok", { approved: true, by: "alice", comment: "VIP customer" });
+```
+
+**Escalation:** when the failure policy escalates (by default `NeedsHumanError` and `OverBudgetError`), the run waits for a person the same way, as an approval named `escalation-<attempt>`. Approving retries it once more, even past `maxAttempts`, with the reviewer's comment as `ctx.hint`. Rejecting it, or no answer within `escalationTimeoutMs` (default 24 hours), fails the run.
 
 ## Control-flow errors
 

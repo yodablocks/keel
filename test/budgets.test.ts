@@ -52,7 +52,7 @@ test("step usage adds up on the run and a retry does not count it twice", async 
   assert.equal(run.usage.tokens, 4000);
 });
 
-test("a run over its budget stops before the next step and escalates", async (t) => {
+test("a run over its budget stops before the next step and escalates to a person", async (t) => {
   const called: string[] = [];
   const { engine, queue } = setup(t, {
     agent: async (_payload, ctx) => {
@@ -63,7 +63,7 @@ test("a run over its budget stops before the next step and escalates", async (t)
   });
 
   const { id } = await engine.enqueue("agent", {}, { queue, budget: { usd: 1 } });
-  const run = await status(engine, id, "failed");
+  const run = await status(engine, id, "waiting");
 
   assert.deepEqual(called, ["research", "draft"], "the step after the budget was crossed never ran");
   assertUsd(run.usage.usd, 1.2, "overshoot is at most one step");
