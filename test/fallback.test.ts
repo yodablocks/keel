@@ -52,3 +52,27 @@ test("an over-budget run falls back to the cheaper model and finishes without a 
   assert.deepEqual(run.errors[0]?.action, { type: "fallback", target: "gpt-4o-mini", extendBudget: { usd: 0.05 } });
   assert.equal((await engine.listPendingApprovals()).filter((a) => a.runId === id).length, 0);
 });
+
+test("a run that goes over budget again on the fallback escalates to a person", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  const models: string[] = [];
+  const worker = engine.createWorker({
+    queue,
+    // The extension is too small for even one more step.
+    policy: defaultPolicy({ fallback: { target: "gpt-4o-mini", extendBudget: { usd: 0.001 } } }),
+    tasks: { agent: agent(models, ["research", "draft", "polish"]) },
+  });
+  t.after(async () => {
+    await worker.stop();
+    await engine.close();
+  });
+  worker.start();
+
+  const { id } = await engine.enqueue("agent", {}, { queue, budget: { usd: 0.1 } });
+  const run = await status(engine, id, "waiting");
+
+  assert.deepEqual(run.errors.map((e) => e.action.type), ["fallback", "escalate"]);
+  assert.deepEqual(models, ["research:gpt-4o", "draft:gpt-4o"]);
+  assert.equal((await engine.listPendingApprovals()).filter((a) => a.runId === id).length, 1);
+});
