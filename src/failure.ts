@@ -59,3 +59,53 @@ export class RuleClassifier implements FailureClassifier {
     return { kind: "fatal", confidence: 0.5 };
   }
 }
+
+export type FailureAction =
+  | { type: "retry"; delayMs: number }
+  /** Retry with a hint the handler receives as ctx.hint, e.g. to correct a model's last output. */
+  | { type: "retry_modified"; hint: string; delayMs?: number }
+  /** Not routed yet (M6): the run fails with the target recorded. */
+  | { type: "fallback"; target: string }
+  /** Not routed yet (M8): the run fails with the reason recorded. */
+  | { type: "escalate"; reason: string }
+  | { type: "fail"; reason?: string };
+
+/**
+ * Decides what happens after a failure. The engine still caps retries at maxAttempts:
+ * a retry action on the last attempt sends the run to `dead`.
+ */
+export type FailurePolicy = (verdict: FailureVerdict, ctx: FailureContext) => FailureAction;
+
+export interface DefaultPolicyOptions {
+  /** First retry waits up to this long. Each later retry doubles the ceiling. */
+  baseMs?: number;
+  maxMs?: number;
+  random?: () => number;
+}
+
+/**
+ * Transient failures retry with exponential backoff and full jitter. Bad output retries at once
+ * with the error as a hint. Bad input and fatal errors fail. Needs-human escalates.
+ */
+export function defaultPolicy(options: DefaultPolicyOptions = {}): FailurePolicy {
+  const baseMs = options.baseMs ?? 1000;
+  const maxMs = options.maxMs ?? 60_000;
+  const random = options.random ?? Math.random;
+
+  return (verdict, ctx) => {
+    const message = ctx.error instanceof Error ? ctx.error.message : String(ctx.error);
+    switch (verdict.kind) {
+      case "transient": {
+        const ceiling = Math.min(maxMs, baseMs * 2 ** (ctx.attempt - 1));
+        return { type: "retry", delayMs: Math.floor(random() * ceiling) };
+      }
+      case "bad_output":
+        return { type: "retry_modified", hint: `The previous attempt produced unusable output: ${message}` };
+      case "needs_human":
+        return { type: "escalate", reason: message };
+      case "bad_input":
+      case "fatal":
+        return { type: "fail", reason: message };
+    }
+  };
+}

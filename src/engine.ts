@@ -1,6 +1,8 @@
 import pg from "pg";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
+import { defaultPolicy, RuleClassifier } from "./failure.ts";
+import type { FailureAction, FailureClassifier, FailureContext, FailureKind, FailurePolicy, FailureVerdict } from "./failure.ts";
 
 export type RunStatus = "queued" | "running" | "completed" | "failed" | "dead";
 
@@ -12,7 +14,19 @@ export interface Run {
   status: RunStatus;
   attempt: number;
   result: unknown;
-  lastError: unknown;
+  lastError: RunError | null;
+  /** One entry per failed attempt, oldest first. */
+  errors: RunError[];
+}
+
+export interface RunError {
+  attempt: number;
+  name: string;
+  message: string;
+  kind: FailureKind;
+  confidence: number;
+  action: FailureAction;
+  at: string;
 }
 
 export interface EngineOptions {
@@ -21,9 +35,19 @@ export interface EngineOptions {
 
 export interface EnqueueOptions {
   queue?: string;
+  /** Total attempts including the first. Defaults to 3. */
+  maxAttempts?: number;
 }
 
-export type TaskHandler = (payload: unknown) => Promise<unknown>;
+export interface TaskContext {
+  runId: string;
+  /** Starts at 1. */
+  attempt: number;
+  /** Set when the previous attempt failed and the policy chose retry_modified. */
+  hint?: string;
+}
+
+export type TaskHandler = (payload: unknown, ctx: TaskContext) => Promise<unknown>;
 
 export interface WorkerOptions {
   queue?: string;
@@ -32,6 +56,8 @@ export interface WorkerOptions {
   /** How often a running handler extends its lease. Defaults to a third of leaseMs. */
   heartbeatMs?: number;
   pollMs?: number;
+  classifier?: FailureClassifier;
+  policy?: FailurePolicy;
 }
 
 export interface StopOptions {
@@ -61,15 +87,15 @@ export function createEngine(options: EngineOptions): Engine {
   return {
     async enqueue(task, payload, opts = {}) {
       const { rows } = await pool.query<{ id: string }>(
-        `INSERT INTO runs (queue, task, payload) VALUES ($1, $2, $3) RETURNING id`,
-        [opts.queue ?? "default", task, JSON.stringify(payload ?? {})],
+        `INSERT INTO runs (queue, task, payload, max_attempts) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [opts.queue ?? "default", task, JSON.stringify(payload ?? {}), opts.maxAttempts ?? 3],
       );
       return { id: rows[0]!.id };
     },
 
     async getRun(id) {
       const { rows } = await pool.query(
-        `SELECT id, queue, task, payload, status, attempt, result, last_error FROM runs WHERE id = $1`,
+        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors FROM runs WHERE id = $1`,
         [id],
       );
       const row = rows[0];
@@ -83,6 +109,7 @@ export function createEngine(options: EngineOptions): Engine {
         attempt: row.attempt,
         result: row.result,
         lastError: row.last_error,
+        errors: row.errors,
       };
     },
 
@@ -100,6 +127,9 @@ interface ClaimedRun {
   id: string;
   task: string;
   payload: unknown;
+  attempt: number;
+  max_attempts: number;
+  hint: string | null;
 }
 
 function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
@@ -108,6 +138,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   const leaseMs = options.leaseMs ?? 30_000;
   const heartbeatMs = options.heartbeatMs ?? Math.floor(leaseMs / 3);
   const pollMs = options.pollMs ?? 50;
+  const classifier = options.classifier ?? new RuleClassifier();
+  const policy = options.policy ?? defaultPolicy();
   let running = false;
   let loop: Promise<void> | undefined;
   let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean } | undefined;
@@ -131,7 +163,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, task, payload`,
+       RETURNING id, task, payload, attempt, max_attempts, hint`,
       [queue, id, leaseMs],
     );
     return rows[0];
@@ -158,7 +190,11 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     let threw = false;
     try {
       if (!handler) throw new Error(`No handler registered for task "${run.task}"`);
-      result = await handler(run.payload);
+      result = await handler(run.payload, {
+        runId: run.id,
+        attempt: run.attempt,
+        ...(run.hint !== null && { hint: run.hint }),
+      });
     } catch (err) {
       threw = true;
       error = err;
@@ -169,17 +205,48 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     // Released during shutdown: another worker may own the run now.
     if (current.released) return;
     if (threw) {
-      await pool.query(
-        `UPDATE runs SET status = 'failed', last_error = $3, lease_owner = NULL, lease_expires = NULL, updated_at = now()
-         WHERE id = $1 AND lease_owner = $2`,
-        [run.id, id, JSON.stringify(serializeError(error))],
-      );
+      await recordFailure(run, error);
       return;
     }
     await pool.query(
       `UPDATE runs SET status = 'completed', result = $3, lease_owner = NULL, lease_expires = NULL, updated_at = now()
        WHERE id = $1 AND lease_owner = $2`,
       [run.id, id, JSON.stringify(result ?? null)],
+    );
+  }
+
+  async function recordFailure(run: ClaimedRun, error: unknown): Promise<void> {
+    const ctx: FailureContext = { error, task: run.task, payload: run.payload, attempt: run.attempt, maxAttempts: run.max_attempts };
+    let verdict: FailureVerdict;
+    try {
+      verdict = await classifier.classify(ctx);
+    } catch (classifierError) {
+      console.error(`[keel] ${id} classifier error, treating failure as fatal:`, classifierError);
+      verdict = { kind: "fatal", confidence: 0 };
+    }
+    const action = policy(verdict, ctx);
+    const wantsRetry = action.type === "retry" || action.type === "retry_modified";
+    const status = !wantsRetry ? "failed" : run.attempt >= run.max_attempts ? "dead" : "queued";
+    const delayMs = action.type === "retry" ? action.delayMs : action.type === "retry_modified" ? (action.delayMs ?? 0) : 0;
+    const hint = action.type === "retry_modified" && status === "queued" ? action.hint : null;
+    const entry: RunError = {
+      attempt: run.attempt,
+      ...serializeError(error),
+      kind: verdict.kind,
+      confidence: verdict.confidence,
+      action,
+      at: new Date().toISOString(),
+    };
+    await pool.query(
+      `UPDATE runs SET
+         status = $3,
+         run_after = now() + make_interval(secs => $4::double precision / 1000),
+         hint = $5,
+         last_error = $6::jsonb,
+         errors = errors || jsonb_build_array($6::jsonb),
+         lease_owner = NULL, lease_expires = NULL, updated_at = now()
+       WHERE id = $1 AND lease_owner = $2`,
+      [run.id, id, status, delayMs, hint, JSON.stringify(entry)],
     );
   }
 
