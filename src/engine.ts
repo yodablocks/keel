@@ -37,6 +37,19 @@ export interface EnqueueOptions {
   queue?: string;
   /** Total attempts including the first. Defaults to 3. */
   maxAttempts?: number;
+  /**
+   * While the key is live, enqueueing the same task with the same key returns the existing run,
+   * whatever its status. Keys are scoped per task.
+   */
+  idempotencyKey?: string;
+  /** How long the key stays live. Defaults to 24 hours. */
+  idempotencyTtlMs?: number;
+}
+
+export interface EnqueueResult {
+  id: string;
+  /** False when an existing run with the same idempotency key was returned instead. */
+  created: boolean;
 }
 
 export interface TaskContext {
@@ -75,7 +88,7 @@ export interface Worker {
 }
 
 export interface Engine {
-  enqueue(task: string, payload: unknown, opts?: EnqueueOptions): Promise<{ id: string }>;
+  enqueue(task: string, payload: unknown, opts?: EnqueueOptions): Promise<EnqueueResult>;
   getRun(id: string): Promise<Run | undefined>;
   createWorker(options: WorkerOptions): Worker;
   close(): Promise<void>;
@@ -86,11 +99,39 @@ export function createEngine(options: EngineOptions): Engine {
 
   return {
     async enqueue(task, payload, opts = {}) {
+      const values = [opts.queue ?? "default", task, JSON.stringify(payload ?? {}), opts.maxAttempts ?? 3];
+      if (opts.idempotencyKey === undefined) {
+        const { rows } = await pool.query<{ id: string }>(
+          `INSERT INTO runs (queue, task, payload, max_attempts) VALUES ($1, $2, $3, $4) RETURNING id`,
+          values,
+        );
+        return { id: rows[0]!.id, created: true };
+      }
+
+      // One statement: take the key (new, or expired) and insert the run together. Concurrent
+      // callers with the same key block on the key row, so exactly one of them inserts a run.
+      const ttlMs = opts.idempotencyTtlMs ?? 24 * 60 * 60 * 1000;
       const { rows } = await pool.query<{ id: string }>(
-        `INSERT INTO runs (queue, task, payload, max_attempts) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [opts.queue ?? "default", task, JSON.stringify(payload ?? {}), opts.maxAttempts ?? 3],
+        `WITH taken AS (
+           INSERT INTO idempotency_keys (task, key, run_id, expires_at)
+           VALUES ($2, $5, gen_random_uuid(), now() + make_interval(secs => $6::double precision / 1000))
+           ON CONFLICT (task, key) DO UPDATE
+             SET run_id = EXCLUDED.run_id, expires_at = EXCLUDED.expires_at
+             WHERE idempotency_keys.expires_at <= now()
+           RETURNING run_id
+         )
+         INSERT INTO runs (id, queue, task, payload, max_attempts)
+         SELECT run_id, $1, $2, $3, $4 FROM taken
+         RETURNING id`,
+        [...values, opts.idempotencyKey, ttlMs],
       );
-      return { id: rows[0]!.id };
+      if (rows[0]) return { id: rows[0].id, created: true };
+
+      const existing = await pool.query<{ run_id: string }>(
+        `SELECT run_id FROM idempotency_keys WHERE task = $1 AND key = $2`,
+        [task, opts.idempotencyKey],
+      );
+      return { id: existing.rows[0]!.run_id, created: false };
     },
 
     async getRun(id) {
