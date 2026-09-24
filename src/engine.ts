@@ -221,6 +221,11 @@ export interface Engine {
    * limit its runs are deferred: queued runs are not claimed and running runs pause at their next step.
    */
   setTenantBudget(tenant: string, budget: TenantBudget): Promise<void>;
+  /**
+   * Replaces a run's budget. Omitted limits are removed. Takes effect the next time the run is claimed,
+   * so raise it before approving an over-budget escalation.
+   */
+  setRunBudget(runId: string, budget: Partial<Usage>): Promise<void>;
   /** Approval requests that are still waiting for a decision, oldest first. */
   listPendingApprovals(): Promise<Approval[]>;
   /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
@@ -332,6 +337,14 @@ export function createEngine(options: EngineOptions): Engine {
         [runId, name, JSON.stringify(decision)],
       );
       return { resolved: (rowCount ?? 0) > 0 };
+    },
+
+    async setRunBudget(runId, budget) {
+      await pool.query(`UPDATE runs SET budget_usd = $2, budget_tokens = $3, updated_at = now() WHERE id = $1`, [
+        runId,
+        budget.usd ?? null,
+        budget.tokens ?? null,
+      ]);
     },
 
     async sendEvent(eventName, payload) {

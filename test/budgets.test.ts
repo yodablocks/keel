@@ -121,3 +121,26 @@ test("a run whose tenant hits its limit mid-way pauses at the next step and resu
   assert.equal(run.attempt, 1, "pausing for budget is not a failed attempt");
   assertUsd(run.usage.usd, 1.3);
 });
+
+test("a reviewer can raise a run's budget and approve its escalation so it finishes", async (t) => {
+  const called: string[] = [];
+  const { engine, queue } = setup(t, {
+    agent: async (_payload, ctx) => {
+      for (const name of ["research", "draft", "polish"]) {
+        await ctx.step.run(name, () => called.push(name), cost(0.6, 0));
+      }
+      return "done";
+    },
+  });
+
+  const { id } = await engine.enqueue("agent", {}, { queue, budget: { usd: 1 } });
+  await status(engine, id, "waiting");
+  const [escalation] = (await engine.listPendingApprovals()).filter((a) => a.runId === id);
+
+  await engine.setRunBudget(id, { usd: 5 });
+  await engine.resolveApproval(id, escalation!.name, { approved: true, by: "alice", comment: "budget raised to $5" });
+  const run = await status(engine, id, "completed");
+
+  assert.deepEqual(called, ["research", "draft", "polish"]);
+  assertUsd(run.usage.usd, 1.8);
+});
