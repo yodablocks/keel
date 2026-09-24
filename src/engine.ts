@@ -79,6 +79,8 @@ export interface StepCall {
    * (Stripe, email providers) so a step re-run after a crash cannot repeat the side effect.
    */
   idempotencyKey: string;
+  /** Same as ctx.signal. */
+  signal: AbortSignal;
 }
 
 export interface StepApi {
@@ -134,6 +136,11 @@ export interface TaskContext {
   hint?: string;
   step: StepApi;
   wait: WaitApi;
+  /**
+   * Aborts when this worker no longer owns the run: it was released by stop({ timeoutMs }), or a
+   * heartbeat found another worker took it over. Pass it to fetch and SDK calls to stop work early.
+   */
+  signal: AbortSignal;
 }
 
 export type TaskHandler = (payload: unknown, ctx: TaskContext) => Promise<unknown>;
@@ -317,7 +324,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   const policy = options.policy ?? defaultPolicy();
   let running = false;
   let loop: Promise<void> | undefined;
-  let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean } | undefined;
+  let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean; abort: AbortController } | undefined;
 
   async function claim(): Promise<ClaimedRun | undefined> {
     // Poison pill guard: a run whose final attempt lost its lease goes dead instead of being claimed again.
@@ -371,6 +378,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
   async function execute(run: ClaimedRun): Promise<void> {
     const handler = options.tasks[run.task];
+    const abort = new AbortController();
     const heartbeat = setInterval(() => {
       pool
         .query(
@@ -378,12 +386,18 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
            WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
           [run.id, id, leaseMs],
         )
+        .then(({ rowCount }) => {
+          if (rowCount === 0) {
+            clearInterval(heartbeat);
+            abort.abort(new LeaseLostError(`Worker ${id} lost the lease on run ${run.id}`));
+          }
+        })
         .catch(() => {
           // A missed heartbeat is survivable: the next one may land before the lease expires.
         });
     }, heartbeatMs);
     heartbeat.unref();
-    const current = { run, heartbeat, released: false };
+    const current = { run, heartbeat, released: false, abort };
     inFlight = current;
     let result: unknown;
     let error: unknown;
@@ -394,7 +408,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         runId: run.id,
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
-        ...(await createContextApis(run)),
+        ...(await createContextApis(run, abort.signal)),
+        signal: abort.signal,
       });
     } catch (err) {
       threw = true;
@@ -430,7 +445,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     );
   }
 
-  async function createContextApis(run: ClaimedRun): Promise<{ step: StepApi; wait: WaitApi }> {
+  async function createContextApis(run: ClaimedRun, signal: AbortSignal): Promise<{ step: StepApi; wait: WaitApi }> {
     const { rows } = await pool.query<{ name: string; result: unknown; usd: number; tokens: number }>(
       `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
       [run.id],
@@ -461,7 +476,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
           }
         }
 
-        const value = await fn({ idempotencyKey: `keel:${run.id}:${name}` });
+        const value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal });
         const usage = options.usage?.(value) ?? {};
         const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
@@ -600,6 +615,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       const stuck = inFlight;
       stuck.released = true;
       clearInterval(stuck.heartbeat);
+      stuck.abort.abort(new LeaseLostError(`Worker ${id} released run ${stuck.run.id} during shutdown`));
       await pool.query(
         `UPDATE runs SET status = 'queued', lease_owner = NULL, lease_expires = NULL, updated_at = now()
          WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
