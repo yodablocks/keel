@@ -92,6 +92,38 @@ export interface StepApi {
   run<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options?: StepOptions<T>): Promise<T>;
 }
 
+export interface ApprovalRequest {
+  /** Shown to the reviewer. */
+  prompt: string;
+  /** No decision in this time resolves the request as timed_out. Defaults to never. */
+  timeoutMs?: number;
+}
+
+export type ApprovalResult =
+  | { status: "approved" | "rejected"; by?: string; comment?: string }
+  | { status: "timed_out" };
+
+export interface ApprovalApi {
+  /** Suspends the run until a person calls engine.resolveApproval(runId, name, ...) or the timeout. */
+  request(name: string, request: ApprovalRequest): Promise<ApprovalResult>;
+}
+
+export interface Approval {
+  runId: string;
+  name: string;
+  task: string;
+  prompt: string;
+  requestedAt: Date;
+  /** Null when the request never times out. */
+  expiresAt: Date | null;
+}
+
+export interface ApprovalDecision {
+  approved: boolean;
+  by?: string;
+  comment?: string;
+}
+
 export type EventWaitResult = { timedOut: false; payload: unknown } | { timedOut: true };
 
 export interface WaitApi {
@@ -136,6 +168,7 @@ export interface TaskContext {
   hint?: string;
   step: StepApi;
   wait: WaitApi;
+  approval: ApprovalApi;
   /**
    * Aborts when this worker no longer owns the run: it was released by stop({ timeoutMs }), or a
    * heartbeat found another worker took it over. Pass it to fetch and SDK calls to stop work early.
@@ -154,6 +187,11 @@ export interface WorkerOptions {
   pollMs?: number;
   classifier?: FailureClassifier;
   policy?: FailurePolicy;
+  /**
+   * Called once when a run first requests approval (not on replays). Use it to notify a reviewer,
+   * for example in Slack or by email. Errors are logged and do not affect the run.
+   */
+  onApprovalRequested?: (approval: Approval) => Promise<void> | void;
 }
 
 export interface StopOptions {
@@ -178,6 +216,10 @@ export interface Engine {
    * limit its runs are deferred: queued runs are not claimed and running runs pause at their next step.
    */
   setTenantBudget(tenant: string, budget: TenantBudget): Promise<void>;
+  /** Approval requests that are still waiting for a decision, oldest first. */
+  listPendingApprovals(): Promise<Approval[]>;
+  /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
+  resolveApproval(runId: string, name: string, decision: ApprovalDecision): Promise<{ resolved: boolean }>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
   sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
   createWorker(options: WorkerOptions): Worker;
@@ -264,6 +306,27 @@ export function createEngine(options: EngineOptions): Engine {
            SET usd_per_day = EXCLUDED.usd_per_day, tokens_per_day = EXCLUDED.tokens_per_day, updated_at = now()`,
         [tenant, budget.usdPerDay ?? null, budget.tokensPerDay ?? null],
       );
+    },
+
+    async listPendingApprovals() {
+      const { rows } = await pool.query(
+        `SELECT w.run_id, w.name, r.task, w.prompt, w.created_at,
+                CASE WHEN w.wake_at = 'infinity' THEN NULL ELSE w.wake_at END AS expires_at
+         FROM waits w JOIN runs r ON r.id = w.run_id
+         WHERE w.kind IN ('approval', 'escalation') AND w.resolved_at IS NULL AND w.consumed_at IS NULL
+         ORDER BY w.created_at`,
+      );
+      return rows.map(toApproval);
+    },
+
+    async resolveApproval(runId, name, decision) {
+      const { rowCount } = await pool.query(
+        `UPDATE waits SET resolved_at = now(), payload = $3
+         WHERE run_id = $1 AND name = $2 AND kind IN ('approval', 'escalation')
+           AND resolved_at IS NULL AND consumed_at IS NULL`,
+        [runId, name, JSON.stringify(decision)],
+      );
+      return { resolved: (rowCount ?? 0) > 0 };
     },
 
     async sendEvent(eventName, payload) {
@@ -445,7 +508,10 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     );
   }
 
-  async function createContextApis(run: ClaimedRun, signal: AbortSignal): Promise<{ step: StepApi; wait: WaitApi }> {
+  async function createContextApis(
+    run: ClaimedRun,
+    signal: AbortSignal,
+  ): Promise<{ step: StepApi; wait: WaitApi; approval: ApprovalApi }> {
     const { rows } = await pool.query<{ name: string; result: unknown; usd: number; tokens: number }>(
       `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
       [run.id],
@@ -506,17 +572,31 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
     // Registers the wait on first call and suspends. On replay, returns the outcome once it is final:
     // consuming the row decides between "event arrived" and "timed out" atomically.
-    async function awaitWait(name: string, eventName: string | null, timeoutMs: number | undefined): Promise<EventWaitResult> {
+    async function awaitWait(
+      name: string,
+      eventName: string | null,
+      timeoutMs: number | undefined,
+      approvalPrompt?: string,
+    ): Promise<EventWaitResult> {
       if (seen.has(name)) throw new DuplicateStepError(`Step "${name}" ran twice in run ${run.id}; step names must be unique`);
       seen.add(name);
 
-      await pool.query(
-        `INSERT INTO waits (run_id, name, event_name, wake_at)
+      const { rows: created } = await pool.query(
+        `INSERT INTO waits (run_id, name, event_name, wake_at, kind, prompt)
          VALUES ($1, $2, $3, CASE WHEN $4::double precision IS NULL THEN 'infinity'::timestamptz
-                                  ELSE now() + make_interval(secs => $4::double precision / 1000) END)
-         ON CONFLICT (run_id, name) DO NOTHING`,
-        [run.id, name, eventName, timeoutMs ?? null],
+                                  ELSE now() + make_interval(secs => $4::double precision / 1000) END,
+                 $5, $6)
+         ON CONFLICT (run_id, name) DO NOTHING
+         RETURNING run_id, name, prompt, created_at, CASE WHEN wake_at = 'infinity' THEN NULL ELSE wake_at END AS expires_at`,
+        [run.id, name, eventName, timeoutMs ?? null, approvalPrompt === undefined ? "wait" : "approval", approvalPrompt ?? null],
       );
+      if (created[0] && approvalPrompt !== undefined && options.onApprovalRequested) {
+        try {
+          await options.onApprovalRequested(toApproval({ ...created[0], task: run.task }));
+        } catch (hookError) {
+          console.error(`[keel] ${id} onApprovalRequested failed:`, hookError);
+        }
+      }
       const { rows } = await pool.query<{ resolved: boolean; payload: unknown }>(
         `UPDATE waits SET consumed_at = coalesce(consumed_at, now())
          WHERE run_id = $1 AND name = $2
@@ -538,7 +618,20 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       },
     };
 
-    return { step, wait };
+    const approval: ApprovalApi = {
+      async request(name, request) {
+        const outcome = await awaitWait(name, null, request.timeoutMs, request.prompt);
+        if (outcome.timedOut) return { status: "timed_out" };
+        const decision = outcome.payload as ApprovalDecision;
+        return {
+          status: decision.approved ? "approved" : "rejected",
+          ...(decision.by !== undefined && { by: decision.by }),
+          ...(decision.comment !== undefined && { comment: decision.comment }),
+        };
+      },
+    };
+
+    return { step, wait, approval };
   }
 
   async function recordFailure(run: ClaimedRun, error: unknown): Promise<void> {
@@ -623,6 +716,17 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       );
     },
   };
+}
+
+function toApproval(row: {
+  run_id: string;
+  name: string;
+  task: string;
+  prompt: string;
+  created_at: Date;
+  expires_at: Date | null;
+}): Approval {
+  return { runId: row.run_id, name: row.name, task: row.task, prompt: row.prompt, requestedAt: row.created_at, expiresAt: row.expires_at };
 }
 
 function overBudget(spent: Usage, run: ClaimedRun): string | undefined {
