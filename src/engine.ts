@@ -33,6 +33,15 @@ export interface TenantBudget {
   tokensPerDay?: number;
 }
 
+export interface TaskBudget {
+  /** Default budget for runs of the task enqueued without their own. */
+  usdPerRun?: number;
+  tokensPerRun?: number;
+  /** Daily limits for all runs of the task (UTC day). At a limit, runs are deferred like a tenant's. */
+  usdPerDay?: number;
+  tokensPerDay?: number;
+}
+
 export interface StepOptions<T> {
   /** Reports what the step cost. Stored with the step result, so replays never count it twice. */
   usage?: (result: T) => Partial<Usage>;
@@ -253,6 +262,8 @@ export interface Engine {
    * so raise it before approving an over-budget escalation.
    */
   setRunBudget(runId: string, budget: Partial<Usage>): Promise<void>;
+  /** Sets a task's default per-run budget and daily limits. Omitted limits are removed. */
+  setTaskBudget(task: string, budget: TaskBudget): Promise<void>;
   /** Approval requests that are still waiting for a decision, oldest first. */
   listPendingApprovals(): Promise<Approval[]>;
   /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
@@ -378,6 +389,22 @@ export function createEngine(options: EngineOptions): Engine {
       return { resolved: (rowCount ?? 0) > 0 };
     },
 
+    async setTaskBudget(task, budget) {
+      await pool.query(
+        `INSERT INTO task_budgets (task, usd_per_run, tokens_per_run, usd_per_day, tokens_per_day) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (task) DO UPDATE SET
+           usd_per_run = EXCLUDED.usd_per_run, tokens_per_run = EXCLUDED.tokens_per_run,
+           usd_per_day = EXCLUDED.usd_per_day, tokens_per_day = EXCLUDED.tokens_per_day, updated_at = now()`,
+        [task, budget.usdPerRun ?? null, budget.tokensPerRun ?? null, budget.usdPerDay ?? null, budget.tokensPerDay ?? null],
+      );
+      // Release parked runs; the next sweep parks them again if a limit still applies.
+      await pool.query(
+        `UPDATE runs SET run_after = deferred_run_after, deferred_run_after = NULL, updated_at = now()
+         WHERE task = $1 AND deferred_run_after IS NOT NULL`,
+        [task],
+      );
+    },
+
     async setRunBudget(runId, budget) {
       await pool.query(`UPDATE runs SET budget_usd = $2, budget_tokens = $3, updated_at = now() WHERE id = $1`, [
         runId,
@@ -495,7 +522,10 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, budget_usd, budget_tokens, fallback`,
+       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, fallback,
+         -- A run without its own budget uses its task's default.
+         coalesce(budget_usd, (SELECT tb.usd_per_run FROM task_budgets tb WHERE tb.task = runs.task)) AS budget_usd,
+         coalesce(budget_tokens, (SELECT tb.tokens_per_run FROM task_budgets tb WHERE tb.task = runs.task)) AS budget_tokens`,
       [queue, id, leaseMs],
     );
     return rows[0];
