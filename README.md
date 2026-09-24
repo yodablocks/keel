@@ -11,17 +11,18 @@ Status: **M0 (scaffold)**. See [PLAN.md](PLAN.md) for milestones and acceptance 
 ## Requirements
 
 - Node 24+ (runs `.ts` files directly via type stripping)
+- pnpm 10+
 - Docker (for Postgres)
 
 ## Setup
 
 ```sh
-npm install pg
-npm install -D typescript @types/node @types/pg
+pnpm add pg
+pnpm add -D typescript @types/node @types/pg
 cp .env.example .env
-npm run db:up
-npm test
-npm run typecheck
+pnpm db:up
+pnpm test
+pnpm typecheck
 ```
 
 Postgres listens on `localhost:5433` to avoid clashing with a local install.

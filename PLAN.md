@@ -2,7 +2,7 @@
 
 **Goal:** a small, correct, Postgres-backed durable execution engine in TypeScript, with an identity that existing engines lack: it understands *why* an agent step failed and acts on it, and it treats money (tokens, dollars) as a scheduling resource.
 
-**Rule:** every milestone ends with its acceptance tests passing in `npm test` against the real Postgres from `docker-compose.yml`. No mocks for the database.
+**Rule:** every milestone ends with its acceptance tests passing in `pnpm test` against the real Postgres from `docker-compose.yml`. No mocks for the database.
 
 **Ordering principle:** the differentiator (failure classification) arrives in M2, not at the end, so the project shows its identity early.
 
@@ -13,7 +13,7 @@
 - TypeScript run directly by Node (type stripping), `node:test`, `tsc --noEmit` for typechecking
 - Postgres 17 in Docker on port 5433, schema draft in `db/schema.sql`
 
-**Acceptance:** `npm test` passes the smoke test. `npm run typecheck` passes once dev deps are installed.
+**Acceptance:** `pnpm test` passes the smoke test. `pnpm typecheck` passes once dev deps are installed.
 
 ---
 
