@@ -115,11 +115,13 @@ interface FailureClassifier {
 
 ---
 
-## M7: Jev classifier adapter
+## M7: Jev classifier adapter (done)
 
-- `JevClassifier implements FailureClassifier`, using the error, step name, input, and output to produce a typed judgment and confidence
-- Low-confidence judgments fall back to the `RuleClassifier`
-- **Before starting:** load the `typesafe:typesafe-ai` skill and read the live Jev docs. Do not guess the SDK package or API. `../jev_projects/jev_projects.md` may have useful prior notes.
+- `JevClassifier implements FailureClassifier` as a cascade: explicit signals stay on rules (no call), everything else is one Jev Choice question, and answers below `minConfidence` (default 0.5) or a failed call fall back to the `RuleClassifier`
+- State sent to Jev: task, attempt, error (name, message, status, code, cause) and the payload truncated to 2,000 characters
+- **Not yet sent:** the failing step's name and the model's raw output. `FailureContext` does not carry them; adding them would likely resolve cases like the one eval miss (tool-call arguments)
+- keel has no runtime dependency on `@typesafe-ai/sdk`; `SystemOneClient` is a structural type, checked against the real client by `test/types/typesafe-client.ts`
+- **Result:** rules 14/30 (47%), Jev 29/30 (97%), cascade 29/30 (97%). Details and caveats in the README
 
 **Acceptance:** a labelled fixture set of ~30 real failure cases (rate limit, hallucinated tool name, malformed JSON, policy refusal, bad user input) where the Jev classifier beats the rule classifier on accuracy. Record the numbers in the README.
 
@@ -156,6 +158,9 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 - Horizontal sharding beyond what a single Postgres handles
 
 ## Known risks
+
+- The M7 eval set is synthetic and labelled by the classifier's author. Replace it with real production failures before trusting the accuracy numbers or tuning `minConfidence`.
+- Jev adds one API round trip to each failure that has no explicit signal, and costs roughly 650 input tokens per call on the eval set.
 
 - Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented.
 - USD is stored as double precision. Fine for budget limits; not suitable for billing or invoicing, which need integer cents or `numeric`.

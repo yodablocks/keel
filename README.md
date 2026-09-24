@@ -6,7 +6,7 @@ An agent-native durable execution engine for TypeScript, backed by Postgres.
 
 Most job engines treat an AI agent as just a long-running job and retry on any error. Keel's goal is to understand *why* a step failed (transient, bad input, hallucinated output, needs a human) and act on that, and to treat tokens and dollars as a scheduling resource.
 
-Status: **M6 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
+Status: **M7 done** (queue with leases, retries, failure classification, idempotency keys, durable steps, waits, budgets, Jev classifier). See [PLAN.md](PLAN.md) for milestones and acceptance tests.
 
 ## Requirements
 
@@ -130,6 +130,42 @@ tasks: {
 - **Per-run budget:** checked before each new step. A run over its budget fails as `over_budget`, which the default policy escalates.
 - **Tenant daily budget** (UTC day): the tenant's runs are deferred, not failed. Queued runs wait, and running runs pause as `waiting` at their next step. They continue the next day, or as soon as you raise the limit.
 - Budgets can overshoot by up to one step, because a step's cost is known only after it runs.
+
+## Jev failure classifier
+
+`JevClassifier` reads the error message, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model. keel does not depend on the SDK; you pass the client in.
+
+```ts
+import { TypeSafeClient } from "@typesafe-ai/sdk"; // reads TYPESAFE_API_KEY
+
+const worker = engine.createWorker({
+  queue: "agents",
+  classifier: new JevClassifier({ client: new TypeSafeClient(), minConfidence: 0.5 }),
+  tasks: { /* ... */ },
+});
+```
+
+It is a cascade:
+
+1. Explicit signals (keel error classes like `BadOutputError`, `OverBudgetError`) are classified by rules. No API call.
+2. Everything else is one Jev Choice question over `transient / bad_input / bad_output / needs_human / fatal`, given the task, attempt, error (name, message, status, code, cause) and a truncated payload.
+3. If Jev's confidence is below `minConfidence`, or the call fails, the rule verdict is used. A TypeSafe outage never breaks failure handling.
+
+### Eval: rules vs Jev
+
+`pnpm eval:classifier` on 30 hand-labelled failures (`scripts/failure-cases.ts`), `jev-latest`, run 2026-09-24:
+
+| Classifier | Correct | Accuracy |
+|---|---|---|
+| `RuleClassifier` | 14 / 30 | 47% |
+| Jev, raw answer | 29 / 30 | 97% |
+| `JevClassifier` cascade (threshold 0.5) | 29 / 30 | 97% |
+
+- Rules get the cases with a status or error code right and call everything else `fatal`. Jev also classifies the ones whose meaning is only in the message: "Request timed out", invalid JSON from a model, a hallucinated tool name, a refund over an approval limit, a model refusal.
+- The one miss: "Tool call arguments failed validation: missing required property 'query'" (labelled `bad_output`). Jev said `bad_input` with confidence 0.38, below the threshold, so the cascade used the rule verdict (`fatal`), also wrong. The case is genuinely ambiguous without knowing who produced the arguments.
+- 3 of 30 answers were below the 0.5 threshold. The other two were `fatal` cases where rules agreed.
+- Cost: 30 calls, 19,613 input and 1,768 output tokens in total.
+- **Caveat:** the cases are synthetic and were written and labelled by the same author as the classifier question, and 16 of 30 carry their meaning only in the message text, where rules cannot win. This shows the mechanism works; measure it on your own production failures before relying on the numbers. Full results: `eval-results/classifier-2026-09-24T06-04-37.json`.
 
 ## Control-flow errors
 

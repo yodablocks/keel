@@ -1,0 +1,287 @@
+{
+  "model": "jev-latest",
+  "summary": {
+    "cases": 30,
+    "rules": 14,
+    "jevRaw": 29,
+    "cascade": 29,
+    "jevCalls": 30,
+    "fellBackToRules": 1,
+    "tokens": {
+      "input": 19613,
+      "output": 1768
+    }
+  },
+  "rows": [
+    {
+      "task": "summarize",
+      "message": "Request timed out.",
+      "label": "transient",
+      "rules": "fatal",
+      "jev": "transient",
+      "jevConfidence": 1,
+      "cascade": "transient"
+    },
+    {
+      "task": "summarize",
+      "message": "Rate limit reached for gpt-4o on tokens per min. Limit 30000, Used 29810.",
+      "label": "transient",
+      "rules": "transient",
+      "jev": "transient",
+      "jevConfidence": 1,
+      "cascade": "transient"
+    },
+    {
+      "task": "crawl",
+      "message": "socket hang up",
+      "label": "transient",
+      "rules": "transient",
+      "jev": "transient",
+      "jevConfidence": 1,
+      "cascade": "transient"
+    },
+    {
+      "task": "draft-reply",
+      "message": "Overloaded",
+      "label": "transient",
+      "rules": "transient",
+      "jev": "transient",
+      "jevConfidence": 1,
+      "cascade": "transient"
+    },
+    {
+      "task": "crawl",
+      "message": "fetch failed",
+      "label": "transient",
+      "rules": "fatal",
+      "jev": "transient",
+      "jevConfidence": 0.9,
+      "cascade": "transient"
+    },
+    {
+      "task": "enrich-lead",
+      "message": "Service Unavailable",
+      "label": "transient",
+      "rules": "transient",
+      "jev": "transient",
+      "jevConfidence": 1,
+      "cascade": "transient"
+    },
+    {
+      "task": "draft-reply",
+      "message": "The server had an error while processing your request. Sorry about that!",
+      "label": "transient",
+      "rules": "fatal",
+      "jev": "transient",
+      "jevConfidence": 0.95,
+      "cascade": "transient"
+    },
+    {
+      "task": "crawl",
+      "message": "getaddrinfo EAI_AGAIN api.example.com",
+      "label": "transient",
+      "rules": "transient",
+      "jev": "transient",
+      "jevConfidence": 1,
+      "cascade": "transient"
+    },
+    {
+      "task": "summarize",
+      "message": "This model's maximum context length is 128000 tokens. However, your messages resulted in 150213 tokens.",
+      "label": "bad_input",
+      "rules": "bad_input",
+      "jev": "bad_input",
+      "jevConfidence": 1,
+      "cascade": "bad_input"
+    },
+    {
+      "task": "send-email",
+      "message": "Invalid email address in payload.to: 'bob@'",
+      "label": "bad_input",
+      "rules": "fatal",
+      "jev": "bad_input",
+      "jevConfidence": 0.87,
+      "cascade": "bad_input"
+    },
+    {
+      "task": "ingest-document",
+      "message": "Unsupported file type: .heic. Expected pdf, docx or txt",
+      "label": "bad_input",
+      "rules": "fatal",
+      "jev": "bad_input",
+      "jevConfidence": 0.97,
+      "cascade": "bad_input"
+    },
+    {
+      "task": "charge",
+      "message": "Expected number, received string at path amount",
+      "label": "bad_input",
+      "rules": "bad_input",
+      "jev": "bad_input",
+      "jevConfidence": 0.84,
+      "cascade": "bad_input"
+    },
+    {
+      "task": "ingest-document",
+      "message": "Document is empty: no text could be extracted from upload.pdf",
+      "label": "bad_input",
+      "rules": "fatal",
+      "jev": "bad_input",
+      "jevConfidence": 0.88,
+      "cascade": "bad_input"
+    },
+    {
+      "task": "extract-invoice",
+      "message": "Unexpected token '`', \"```json\n{\"ti\"... is not valid JSON",
+      "label": "bad_output",
+      "rules": "fatal",
+      "jev": "bad_output",
+      "jevConfidence": 0.86,
+      "cascade": "bad_output"
+    },
+    {
+      "task": "research-agent",
+      "message": "Model requested tool `serch_web`, which is not in the provided tool list",
+      "label": "bad_output",
+      "rules": "fatal",
+      "jev": "bad_output",
+      "jevConfidence": 0.94,
+      "cascade": "bad_output"
+    },
+    {
+      "task": "research-agent",
+      "message": "Tool call arguments failed validation: missing required property 'query'",
+      "label": "bad_output",
+      "rules": "fatal",
+      "jev": "bad_input",
+      "jevConfidence": 0.38,
+      "cascade": "fatal"
+    },
+    {
+      "task": "summarize",
+      "message": "Model response did not match schema: field 'summary' is required",
+      "label": "bad_output",
+      "rules": "fatal",
+      "jev": "bad_output",
+      "jevConfidence": 0.84,
+      "cascade": "bad_output"
+    },
+    {
+      "task": "extract-invoice",
+      "message": "Extracted invoice total 'twelve hundred' is not a number",
+      "label": "bad_output",
+      "rules": "fatal",
+      "jev": "bad_output",
+      "jevConfidence": 0.93,
+      "cascade": "bad_output"
+    },
+    {
+      "task": "refund",
+      "message": "Refund of $900 exceeds the $500 auto-approval limit",
+      "label": "needs_human",
+      "rules": "fatal",
+      "jev": "needs_human",
+      "jevConfidence": 1,
+      "cascade": "needs_human"
+    },
+    {
+      "task": "support-agent",
+      "message": "Model refused: I can't help with requests to access another person's account.",
+      "label": "needs_human",
+      "rules": "fatal",
+      "jev": "needs_human",
+      "jevConfidence": 0.99,
+      "cascade": "needs_human"
+    },
+    {
+      "task": "send-contract",
+      "message": "Contract clause 7.2 conflicts with company policy; legal review required before sending",
+      "label": "needs_human",
+      "rules": "fatal",
+      "jev": "needs_human",
+      "jevConfidence": 1,
+      "cascade": "needs_human"
+    },
+    {
+      "task": "update-crm",
+      "message": "Two customer records match 'J. Smith'; cannot decide which account to update",
+      "label": "needs_human",
+      "rules": "fatal",
+      "jev": "needs_human",
+      "jevConfidence": 0.82,
+      "cascade": "needs_human"
+    },
+    {
+      "task": "sync-calendar",
+      "message": "Missing OAuth consent: the user must reconnect their Google account",
+      "label": "needs_human",
+      "rules": "fatal",
+      "jev": "needs_human",
+      "jevConfidence": 0.94,
+      "cascade": "needs_human"
+    },
+    {
+      "task": "summarize",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "label": "fatal",
+      "rules": "fatal",
+      "jev": "fatal",
+      "jevConfidence": 0.8,
+      "cascade": "fatal"
+    },
+    {
+      "task": "summarize",
+      "message": "Incorrect API key provided: sk-...abcd",
+      "label": "fatal",
+      "rules": "fatal",
+      "jev": "fatal",
+      "jevConfidence": 0.96,
+      "cascade": "fatal"
+    },
+    {
+      "task": "summarize",
+      "message": "OPENAI_API_KEY environment variable is missing",
+      "label": "fatal",
+      "rules": "fatal",
+      "jev": "fatal",
+      "jevConfidence": 0.99,
+      "cascade": "fatal"
+    },
+    {
+      "task": "summarize",
+      "message": "summarize is not defined",
+      "label": "fatal",
+      "rules": "fatal",
+      "jev": "fatal",
+      "jevConfidence": 0.47,
+      "cascade": "fatal"
+    },
+    {
+      "task": "summarize",
+      "message": "The model `gpt-5-turbo-preview` does not exist or you do not have access to it.",
+      "label": "fatal",
+      "rules": "fatal",
+      "jev": "fatal",
+      "jevConfidence": 0.44,
+      "cascade": "fatal"
+    },
+    {
+      "task": "reserch",
+      "message": "No handler registered for task \"reserch\"",
+      "label": "fatal",
+      "rules": "fatal",
+      "jev": "fatal",
+      "jevConfidence": 0.79,
+      "cascade": "fatal"
+    },
+    {
+      "task": "plan-trip",
+      "message": "Maximum call stack size exceeded",
+      "label": "fatal",
+      "rules": "fatal",
+      "jev": "fatal",
+      "jevConfidence": 0.91,
+      "cascade": "fatal"
+    }
+  ]
+}
