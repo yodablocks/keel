@@ -129,7 +129,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
         : html`<table class="runs">
             <thead><tr><th>Status</th><th>Task</th><th>Queue</th><th>Tenant</th><th class="num">Attempt</th><th class="num">Spent</th><th>Updated</th><th>Run</th></tr></thead>
             <tbody>${runs.map(
-              (r, i) => html`<tr style="--i:${Math.min(i, 30)}">
+              (r) => html`<tr>
                 <td>${statusBadge(r.status)}</td>
                 <td><a href="/runs/${r.id}">${r.task}</a></td>
                 <td class="mono">${r.queue}</td>
@@ -433,7 +433,7 @@ const STYLES = `
 * { box-sizing: border-box; }
 html { background: var(--paper); }
 body { margin: 0; color: var(--ink); font: 16px/1.5 var(--serif); font-variant-numeric: tabular-nums;
-  background-image: linear-gradient(var(--paper) 0 0), repeating-linear-gradient(0deg, transparent 0 27px, color-mix(in srgb, var(--rule) 35%, transparent) 27px 28px);
+  background-image: linear-gradient(var(--paper) 0 0), repeating-linear-gradient(0deg, transparent 0 27px, color-mix(in srgb, var(--rule) 18%, transparent) 27px 28px);
   background-size: 100% 132px, 100% 100%; background-repeat: no-repeat, repeat; min-height: 100vh; }
 a { color: inherit; text-decoration-color: var(--rule); text-underline-offset: 3px; }
 a:hover { text-decoration-color: var(--signal); }
@@ -475,10 +475,8 @@ button:hover { background: var(--ink-2); }
 table.runs { width: 100%; border-collapse: collapse; }
 .runs th { text-align: left; font: 600 0.7rem var(--mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); padding: 0.4rem 0.6rem; border-bottom: 2px solid var(--ink); }
 .runs td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--rule); vertical-align: baseline; }
-.runs tbody tr { animation: rise 0.35s ease-out both; animation-delay: calc(var(--i) * 18ms); }
 .runs tbody tr:hover { background: var(--paper-2); }
 .num { text-align: right; }
-@keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 .empty { color: var(--ink-3); font-style: italic; padding: 2rem 0; }
 .crumbs { font-size: 0.9rem; color: var(--ink-3); margin: 0 0 1rem; }
 .flash { font-family: var(--mono); font-size: 0.8rem; border-left: 3px solid var(--s-completed); padding: 0.4rem 0.8rem; background: var(--paper-2); }
@@ -488,7 +486,7 @@ table.runs { width: 100%; border-collapse: collapse; }
 .facts dt { font: 600 0.7rem var(--mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); }
 .facts dd { margin: 0.15rem 0 0; }
 .decision .prompt { font-size: 1.15rem; margin: 0 0 0.5rem; }
-.decision form { display: grid; grid-template-columns: 14rem 1fr; gap: 0.75rem 1rem; align-items: end; margin-top: 0.75rem; }
+.decision form { display: grid; grid-template-columns: 14rem 1fr; gap: 0.75rem 1rem; align-items: start; margin-top: 0.75rem; }
 .decision label { display: flex; flex-direction: column; gap: 0.2rem; font: 0.72rem var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
 .decision .buttons { grid-column: 1 / -1; display: flex; gap: 0.6rem; }
 button.approve { background: var(--s-completed); border-color: var(--s-completed); }
