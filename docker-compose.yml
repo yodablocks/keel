@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: keel
+      POSTGRES_PASSWORD: keel
+      POSTGRES_DB: keel
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - keel-pg:/var/lib/postgresql/data
+
+volumes:
+  keel-pg:
