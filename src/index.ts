@@ -2,4 +2,4 @@
 export const VERSION = "0.0.0";
 
 export { createEngine } from "./engine.ts";
-export type { Engine, EngineOptions, EnqueueOptions, Run, RunStatus } from "./engine.ts";
+export type { Engine, EngineOptions, EnqueueOptions, Run, RunStatus, TaskHandler, Worker, WorkerOptions } from "./engine.ts";
