@@ -28,9 +28,9 @@ keel works out *why* a step failed and acts on it. It treats tokens and dollars 
 | | |
 |---|---|
 | **Durable steps** | `ctx.step.run()` stores each step's result. After a crash or retry, completed steps replay from storage instead of running again. |
-| **Failure classification** | Every failure is classified as `transient`, `bad_input`, `bad_output`, `needs_human`, `over_budget` or `fatal`, and a policy picks the action: back off, retry with a corrective hint, fail, or escalate. |
+| **Failure classification** | Every failure is classified as `transient`, `bad_input`, `bad_output`, `needs_human`, `over_budget` or `fatal`, and a policy picks the action: back off, retry with a corrective hint, fall back to a cheaper model, fail, or escalate. |
 | **Jev classifier** | An optional classifier that reads error *messages*, the failing step and the rejected model output, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model, with a rule-based fallback. |
-| **Budgets** | Per-run budgets stop a run before its next step. Tenant daily budgets defer runs instead of failing them. |
+| **Budgets** | Per-run budgets stop a run before its next step, and can fall back to a cheaper model instead of stopping. Tenant and per-task daily budgets defer runs instead of failing them. |
 | **Human in the loop** | Approvals inside workflows, and escalated failures that wait for a reviewer's decision. |
 | **Safe side effects** | Each step gets a stable idempotency key, so a step re-run after a crash can't charge a card twice. |
 | **Waits and events** | Durable sleeps and waits for external events that free the worker in the meantime. |
@@ -94,7 +94,7 @@ stateDiagram-v2
     queued --> running: worker claims (lease)
     running --> completed: handler returns
     running --> queued: transient failure, backoff
-    running --> waiting: wait, approval, escalation, tenant over budget
+    running --> waiting: wait, approval, escalation, tenant or task over budget
     waiting --> running: timer due, event, decision, budget allows
     running --> running: lease expired, another worker resumes
     running --> failed: policy stops (bad input, bug, rejected)
@@ -112,7 +112,7 @@ When a handler throws, the error goes through a **classifier** (what kind of fai
 | Model output that can't be used (invalid JSON, unknown tool) | `bad_output` | retry at once, with the error passed to the handler as `ctx.hint` |
 | Invalid input (HTTP 400/422, validation errors) | `bad_input` | fail |
 | Approval limits, refusals, missing permissions | `needs_human` | escalate to a reviewer |
-| Run over its budget | `over_budget` | escalate to a reviewer |
+| Run over its budget | `over_budget` | fall back to a cheaper model once, if configured; otherwise escalate to a reviewer |
 | Anything else | `fatal` | fail |
 
 ## Demo
@@ -156,7 +156,7 @@ keel is an **experimental project**, and the name is not final. All planned mile
 
 The full list is under [Known risks](PLAN.md#known-risks), each tagged with the milestone that addresses it.
 
-**Roadmap:** phase 2 (hardening, classification with step context, budget fallbacks, a dashboard, a serverless mode, a benchmark and packaging) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
+**Roadmap:** phase 2 (hardening, classification with step context and budget fallbacks are done; a dashboard, a serverless mode, a benchmark and packaging are next) is planned in [PLAN.md](PLAN.md#phase-2-production-readiness-planned), along with the deliberate [non-goals](PLAN.md#non-goals).
 
 ## Development
 

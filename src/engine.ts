@@ -33,6 +33,15 @@ export interface TenantBudget {
   tokensPerDay?: number;
 }
 
+export interface TaskBudget {
+  /** Default budget for runs of the task enqueued without their own. */
+  usdPerRun?: number;
+  tokensPerRun?: number;
+  /** Daily limits for all runs of the task (UTC day). At a limit, runs are deferred like a tenant's. */
+  usdPerDay?: number;
+  tokensPerDay?: number;
+}
+
 export interface StepOptions<T> {
   /** Reports what the step cost. Stored with the step result, so replays never count it twice. */
   usage?: (result: T) => Partial<Usage>;
@@ -177,6 +186,8 @@ export interface TaskContext {
   attempt: number;
   /** Set when the previous attempt failed and the policy chose retry_modified. */
   hint?: string;
+  /** Set once a failure policy chose a fallback (for example a cheaper model); stays set for later attempts. */
+  fallback?: string;
   step: StepApi;
   wait: WaitApi;
   approval: ApprovalApi;
@@ -220,7 +231,7 @@ export interface WorkerOptions {
 export interface PurgeOptions {
   /** Runs that finished (completed, failed or dead) before this moment are deleted. */
   olderThan: Date;
-  /** Limit to one queue. Without it, tenant daily spend rows before the cutoff are deleted too. */
+  /** Limit to one queue. Without it, tenant and task daily spend rows before the cutoff are deleted too. */
   queue?: string;
 }
 
@@ -251,6 +262,8 @@ export interface Engine {
    * so raise it before approving an over-budget escalation.
    */
   setRunBudget(runId: string, budget: Partial<Usage>): Promise<void>;
+  /** Sets a task's default per-run budget and daily limits. Omitted limits are removed. */
+  setTaskBudget(task: string, budget: TaskBudget): Promise<void>;
   /** Approval requests that are still waiting for a decision, oldest first. */
   listPendingApprovals(): Promise<Approval[]>;
   /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
@@ -376,6 +389,22 @@ export function createEngine(options: EngineOptions): Engine {
       return { resolved: (rowCount ?? 0) > 0 };
     },
 
+    async setTaskBudget(task, budget) {
+      await pool.query(
+        `INSERT INTO task_budgets (task, usd_per_run, tokens_per_run, usd_per_day, tokens_per_day) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (task) DO UPDATE SET
+           usd_per_run = EXCLUDED.usd_per_run, tokens_per_run = EXCLUDED.tokens_per_run,
+           usd_per_day = EXCLUDED.usd_per_day, tokens_per_day = EXCLUDED.tokens_per_day, updated_at = now()`,
+        [task, budget.usdPerRun ?? null, budget.tokensPerRun ?? null, budget.usdPerDay ?? null, budget.tokensPerDay ?? null],
+      );
+      // Release parked runs; the next sweep parks them again if a limit still applies.
+      await pool.query(
+        `UPDATE runs SET run_after = deferred_run_after, deferred_run_after = NULL, updated_at = now()
+         WHERE task = $1 AND deferred_run_after IS NOT NULL`,
+        [task],
+      );
+    },
+
     async setRunBudget(runId, budget) {
       await pool.query(`UPDATE runs SET budget_usd = $2, budget_tokens = $3, updated_at = now() WHERE id = $1`, [
         runId,
@@ -424,6 +453,17 @@ const TENANT_OVER_BUDGET = `EXISTS (
     AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
       OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
 
+// True when the run's task has reached a daily limit for the current UTC day. Expects `runs` in scope.
+const TASK_OVER_BUDGET = `EXISTS (
+  SELECT 1 FROM task_budgets b
+  LEFT JOIN task_spend s ON s.task = b.task AND s.day = (now() AT TIME ZONE 'utc')::date
+  WHERE b.task = runs.task
+    AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
+      OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
+
+// A run is held back (deferred, never failed) while its tenant or its task is at a daily limit.
+const BUDGET_BLOCKED = `((runs.tenant IS NOT NULL AND ${TENANT_OVER_BUDGET}) OR ${TASK_OVER_BUDGET})`;
+
 // Error entry for an attempt cut short by stop({ timeoutMs }). It counts toward maxAttempts like any lost attempt.
 const RELEASED_ERROR = `jsonb_build_object(
   'attempt', attempt, 'name', 'Released',
@@ -446,6 +486,8 @@ interface ClaimedRun {
   tenant: string | null;
   budget_usd: number | null;
   budget_tokens: number | null;
+  fallback: string | null;
+  task_has_daily_budget: boolean;
 }
 
 function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
@@ -485,14 +527,19 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
              OR EXISTS (SELECT 1 FROM waits w WHERE w.run_id = runs.id AND w.resolved_at IS NOT NULL AND w.consumed_at IS NULL)
            ))
          )
-         -- Tenant budgets defer runs instead of failing them. Expired leases are still reclaimed:
-         -- the run pauses at its next step if the tenant is still over.
-         AND (tenant IS NULL OR status = 'running' OR NOT ${TENANT_OVER_BUDGET})
+         -- Tenant and task daily budgets defer runs instead of failing them. Expired leases are still
+         -- reclaimed: the run pauses at its next step if a limit still applies.
+         AND (status = 'running' OR NOT ${BUDGET_BLOCKED})
          ORDER BY run_after
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, budget_usd, budget_tokens`,
+       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, fallback,
+         EXISTS (SELECT 1 FROM task_budgets tb WHERE tb.task = runs.task
+                 AND (tb.usd_per_day IS NOT NULL OR tb.tokens_per_day IS NOT NULL)) AS task_has_daily_budget,
+         -- A run without its own budget uses its task's default.
+         coalesce(budget_usd, (SELECT tb.usd_per_run FROM task_budgets tb WHERE tb.task = runs.task)) AS budget_usd,
+         coalesce(budget_tokens, (SELECT tb.tokens_per_run FROM task_budgets tb WHERE tb.task = runs.task)) AS budget_tokens`,
       [queue, id, leaseMs],
     );
     return rows[0];
@@ -568,6 +615,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         runId: run.id,
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
+        ...(run.fallback !== null && { fallback: run.fallback }),
         ...(await createContextApis(run, abort.signal)),
         signal: abort.signal,
       });
@@ -629,14 +677,14 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
         const over = overBudget(spent, run);
         if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
-        if (run.tenant !== null) {
-          const { rows: tenantRows } = await pool.query<{ over: boolean }>(
-            `SELECT ${TENANT_OVER_BUDGET} AS over FROM runs WHERE id = $1`,
+        if (run.tenant !== null || run.task_has_daily_budget) {
+          const { rows: blocked } = await pool.query<{ tenant: boolean; task: boolean }>(
+            `SELECT (runs.tenant IS NOT NULL AND ${TENANT_OVER_BUDGET}) AS tenant, ${TASK_OVER_BUDGET} AS task
+             FROM runs WHERE id = $1`,
             [run.id],
           );
-          if (tenantRows[0]?.over) {
-            throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
-          }
+          if (blocked[0]?.tenant) throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
+          if (blocked[0]?.task) throw new RunSuspended(null, `Task ${run.task} is at its daily budget before step "${name}"`);
         }
 
         let value: T;
@@ -651,7 +699,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         const usage = options.usage?.(value) ?? {};
         const json = JSON.stringify(value ?? null);
         // Fenced on the lease so a zombie worker cannot store results for a run it lost.
-        // The tenant's daily spend is updated in the same statement, so it can never drift from the steps.
+        // Tenant and task daily spend are updated in the same statement, so they can never drift from the steps.
         const { rows: inserted } = await pool.query<{ stored: number }>(
           `WITH ins AS (
              INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
@@ -664,9 +712,14 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
              SELECT $8, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins WHERE $8::text IS NOT NULL
              ON CONFLICT (tenant, day) DO UPDATE
                SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
+           ), task_spent AS (
+             INSERT INTO task_spend (task, day, usd, tokens)
+             SELECT $9, (now() AT TIME ZONE 'utc')::date, usd, tokens FROM ins
+             ON CONFLICT (task, day) DO UPDATE
+               SET usd = task_spend.usd + EXCLUDED.usd, tokens = task_spend.tokens + EXCLUDED.tokens
            )
            SELECT count(*)::int AS stored FROM ins`,
-          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant],
+          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant, run.task],
         );
         if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
         spent.usd += usage.usd ?? 0;
@@ -799,6 +852,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       maxAttempts: run.max_attempts,
       ...(step !== undefined && { step }),
       ...(output !== undefined && { output }),
+      ...(run.fallback !== null && { fallback: run.fallback }),
     };
     let verdict: FailureVerdict;
     try {
@@ -812,21 +866,31 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       await escalate(run, ctx, verdict, action);
       return;
     }
-    const wantsRetry = action.type === "retry" || action.type === "retry_modified";
+    const wantsRetry = action.type === "retry" || action.type === "retry_modified" || action.type === "fallback";
     const status = !wantsRetry ? "failed" : run.attempt >= run.max_attempts ? "dead" : "queued";
-    const delayMs = action.type === "retry" ? action.delayMs : action.type === "retry_modified" ? (action.delayMs ?? 0) : 0;
+    const delayMs =
+      action.type === "retry" ? action.delayMs : action.type === "retry_modified" || action.type === "fallback" ? (action.delayMs ?? 0) : 0;
     const hint = action.type === "retry_modified" && status === "queued" ? action.hint : null;
+    // A fallback switches the run for good and extends its effective budget by the given amount.
+    const fallback = action.type === "fallback" ? action.target : run.fallback;
+    const extend = action.type === "fallback" ? (action.extendBudget ?? {}) : {};
+    const budgetUsd = run.budget_usd !== null && extend.usd !== undefined ? run.budget_usd + extend.usd : run.budget_usd;
+    const budgetTokens =
+      run.budget_tokens !== null && extend.tokens !== undefined ? run.budget_tokens + extend.tokens : run.budget_tokens;
     const entry = errorEntry(run, ctx, verdict, action);
     await pool.query(
       `UPDATE runs SET
          status = $3,
          run_after = now() + make_interval(secs => $4::double precision / 1000),
          hint = $5,
+         fallback = $7,
+         budget_usd = $8,
+         budget_tokens = $9,
          last_error = $6::jsonb,
          errors = errors || jsonb_build_array($6::jsonb),
          lease_owner = NULL, lease_expires = NULL, updated_at = now()
        WHERE id = $1 AND lease_owner = $2`,
-      [run.id, id, status, delayMs, hint, JSON.stringify(entry)],
+      [run.id, id, status, delayMs, hint, JSON.stringify(entry), fallback, budgetUsd, budgetTokens],
     );
   }
 
@@ -860,7 +924,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
        )`,
       [queue],
     );
-    // Park runs of over-budget tenants until the next UTC midnight, so claims skip them through the index.
+    // Park runs of over-budget tenants and tasks until the next UTC midnight, so claims skip them through the index.
     await pool.query(
       `UPDATE runs SET
          deferred_run_after = run_after,
@@ -868,8 +932,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          updated_at = now()
        WHERE id IN (
          SELECT id FROM runs
-         WHERE queue = $1 AND status IN ('queued', 'waiting') AND tenant IS NOT NULL
-           AND deferred_run_after IS NULL AND ${TENANT_OVER_BUDGET}
+         WHERE queue = $1 AND status IN ('queued', 'waiting')
+           AND deferred_run_after IS NULL AND ${BUDGET_BLOCKED}
          FOR UPDATE SKIP LOCKED
        )`,
       [queue],
@@ -952,6 +1016,7 @@ async function purgeRuns(pool: pg.Pool, { olderThan, queue }: PurgeOptions): Pro
   );
   if (queue === undefined) {
     await pool.query(`DELETE FROM tenant_spend WHERE day < ($1::timestamptz AT TIME ZONE 'utc')::date`, [olderThan]);
+    await pool.query(`DELETE FROM task_spend WHERE day < ($1::timestamptz AT TIME ZONE 'utc')::date`, [olderThan]);
   }
   return { runs: rows[0]!.runs };
 }
@@ -965,7 +1030,13 @@ function invalidAction(action: FailureAction | undefined): string | undefined {
       return action.delayMs === undefined || validDelay(action.delayMs)
         ? undefined
         : `retry_modified delayMs must be a finite number >= 0, got ${action.delayMs}`;
-    case "fallback":
+    case "fallback": {
+      if (typeof action.target !== "string" || action.target === "") return "fallback target must be a non-empty string";
+      if (action.delayMs !== undefined && !validDelay(action.delayMs)) return `fallback delayMs must be a finite number >= 0, got ${action.delayMs}`;
+      const ext = action.extendBudget ?? {};
+      if ([ext.usd, ext.tokens].some((v) => v !== undefined && !validDelay(v))) return "fallback extendBudget values must be finite numbers >= 0";
+      return undefined;
+    }
     case "escalate":
     case "fail":
       return undefined;
