@@ -177,6 +177,8 @@ export interface TaskContext {
   attempt: number;
   /** Set when the previous attempt failed and the policy chose retry_modified. */
   hint?: string;
+  /** Set once a failure policy chose a fallback (for example a cheaper model); stays set for later attempts. */
+  fallback?: string;
   step: StepApi;
   wait: WaitApi;
   approval: ApprovalApi;
@@ -446,6 +448,7 @@ interface ClaimedRun {
   tenant: string | null;
   budget_usd: number | null;
   budget_tokens: number | null;
+  fallback: string | null;
 }
 
 function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
@@ -492,7 +495,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
          LIMIT 1
          FOR UPDATE SKIP LOCKED
        )
-       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, budget_usd, budget_tokens`,
+       RETURNING id, task, payload, attempt, max_attempts, hint, tenant, budget_usd, budget_tokens, fallback`,
       [queue, id, leaseMs],
     );
     return rows[0];
@@ -568,6 +571,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         runId: run.id,
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
+        ...(run.fallback !== null && { fallback: run.fallback }),
         ...(await createContextApis(run, abort.signal)),
         signal: abort.signal,
       });
@@ -799,6 +803,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       maxAttempts: run.max_attempts,
       ...(step !== undefined && { step }),
       ...(output !== undefined && { output }),
+      ...(run.fallback !== null && { fallback: run.fallback }),
     };
     let verdict: FailureVerdict;
     try {
@@ -812,21 +817,31 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       await escalate(run, ctx, verdict, action);
       return;
     }
-    const wantsRetry = action.type === "retry" || action.type === "retry_modified";
+    const wantsRetry = action.type === "retry" || action.type === "retry_modified" || action.type === "fallback";
     const status = !wantsRetry ? "failed" : run.attempt >= run.max_attempts ? "dead" : "queued";
-    const delayMs = action.type === "retry" ? action.delayMs : action.type === "retry_modified" ? (action.delayMs ?? 0) : 0;
+    const delayMs =
+      action.type === "retry" ? action.delayMs : action.type === "retry_modified" || action.type === "fallback" ? (action.delayMs ?? 0) : 0;
     const hint = action.type === "retry_modified" && status === "queued" ? action.hint : null;
+    // A fallback switches the run for good and extends its effective budget by the given amount.
+    const fallback = action.type === "fallback" ? action.target : run.fallback;
+    const extend = action.type === "fallback" ? (action.extendBudget ?? {}) : {};
+    const budgetUsd = run.budget_usd !== null && extend.usd !== undefined ? run.budget_usd + extend.usd : run.budget_usd;
+    const budgetTokens =
+      run.budget_tokens !== null && extend.tokens !== undefined ? run.budget_tokens + extend.tokens : run.budget_tokens;
     const entry = errorEntry(run, ctx, verdict, action);
     await pool.query(
       `UPDATE runs SET
          status = $3,
          run_after = now() + make_interval(secs => $4::double precision / 1000),
          hint = $5,
+         fallback = $7,
+         budget_usd = $8,
+         budget_tokens = $9,
          last_error = $6::jsonb,
          errors = errors || jsonb_build_array($6::jsonb),
          lease_owner = NULL, lease_expires = NULL, updated_at = now()
        WHERE id = $1 AND lease_owner = $2`,
-      [run.id, id, status, delayMs, hint, JSON.stringify(entry)],
+      [run.id, id, status, delayMs, hint, JSON.stringify(entry), fallback, budgetUsd, budgetTokens],
     );
   }
 
@@ -965,7 +980,13 @@ function invalidAction(action: FailureAction | undefined): string | undefined {
       return action.delayMs === undefined || validDelay(action.delayMs)
         ? undefined
         : `retry_modified delayMs must be a finite number >= 0, got ${action.delayMs}`;
-    case "fallback":
+    case "fallback": {
+      if (typeof action.target !== "string" || action.target === "") return "fallback target must be a non-empty string";
+      if (action.delayMs !== undefined && !validDelay(action.delayMs)) return `fallback delayMs must be a finite number >= 0, got ${action.delayMs}`;
+      const ext = action.extendBudget ?? {};
+      if ([ext.usd, ext.tokens].some((v) => v !== undefined && !validDelay(v))) return "fallback extendBudget values must be finite numbers >= 0";
+      return undefined;
+    }
     case "escalate":
     case "fail":
       return undefined;

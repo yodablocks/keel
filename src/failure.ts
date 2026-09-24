@@ -11,6 +11,8 @@ export interface FailureContext {
   step?: string;
   /** Output the handler rejected, attached to the error as `output` (see KeelErrorOptions). */
   output?: unknown;
+  /** The fallback the run is already on, if a previous failure chose one. */
+  fallback?: string;
 }
 
 export interface FailureVerdict {
@@ -89,9 +91,13 @@ export type FailureAction =
   | { type: "retry"; delayMs: number }
   /** Retry with a hint the handler receives as ctx.hint, e.g. to correct a model's last output. */
   | { type: "retry_modified"; hint: string; delayMs?: number }
-  /** Not routed yet (M6): the run fails with the target recorded. */
-  | { type: "fallback"; target: string }
-  /** Not routed yet (M8): the run fails with the reason recorded. */
+  /**
+   * Retry on an alternative, typically a cheaper model: the handler receives `target` as ctx.fallback on
+   * this and every later attempt. `extendBudget` is added to the run's budget first, since an over-budget
+   * run could not take another step otherwise.
+   */
+  | { type: "fallback"; target: string; extendBudget?: { usd?: number; tokens?: number }; delayMs?: number }
+  /** Parks the run for a person to approve (retry once more) or reject (fail). */
   | { type: "escalate"; reason: string }
   | { type: "fail"; reason?: string };
 
@@ -106,11 +112,17 @@ export interface DefaultPolicyOptions {
   baseMs?: number;
   maxMs?: number;
   random?: () => number;
+  /**
+   * Answer `over_budget` by falling back once, e.g. `{ target: "gpt-4o-mini", extendBudget: { usd: 0.1 } }`.
+   * A run that goes over budget again while on the fallback escalates to a person.
+   */
+  fallback?: { target: string; extendBudget?: { usd?: number; tokens?: number } };
 }
 
 /**
  * Transient failures retry with exponential backoff and full jitter. Bad output retries at once
- * with the error as a hint. Bad input and fatal errors fail. Needs-human and over-budget escalate.
+ * with the error as a hint. Bad input and fatal errors fail. Needs-human escalates. Over-budget falls back
+ * once when `fallback` is configured, and escalates otherwise.
  */
 export function defaultPolicy(options: DefaultPolicyOptions = {}): FailurePolicy {
   const baseMs = options.baseMs ?? 1000;
@@ -126,8 +138,16 @@ export function defaultPolicy(options: DefaultPolicyOptions = {}): FailurePolicy
       }
       case "bad_output":
         return { type: "retry_modified", hint: `The previous attempt produced unusable output: ${message}` };
-      case "needs_human":
       case "over_budget":
+        if (options.fallback && ctx.fallback === undefined) {
+          return {
+            type: "fallback",
+            target: options.fallback.target,
+            ...(options.fallback.extendBudget !== undefined && { extendBudget: options.fallback.extendBudget }),
+          };
+        }
+        return { type: "escalate", reason: message };
+      case "needs_human":
         return { type: "escalate", reason: message };
       case "bad_input":
       case "fatal":
