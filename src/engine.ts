@@ -19,6 +19,8 @@ export interface Run {
   errors: RunError[];
   /** Sum of usage reported by completed steps. */
   usage: Usage;
+  /** Earliest time the run can be claimed. Null when it only wakes on an event. */
+  runAfter: Date | null;
 }
 
 export interface Usage {
@@ -197,6 +199,20 @@ export interface WorkerOptions {
    * failing. Approval retries it once more with the reviewer's comment as ctx.hint. Defaults to 24 hours.
    */
   escalationTimeoutMs?: number;
+  /**
+   * How often the worker sweeps its queue: dead-letters runs whose final attempt lost its lease, and parks
+   * runs of over-budget tenants until the next UTC midnight. Defaults to 1000ms.
+   */
+  sweepEveryMs?: number;
+  /** Periodically purges runs of this worker's queue that finished more than keepMs ago. */
+  retention?: { keepMs: number; everyMs?: number };
+}
+
+export interface PurgeOptions {
+  /** Runs that finished (completed, failed or dead) before this moment are deleted. */
+  olderThan: Date;
+  /** Limit to one queue. Without it, tenant daily spend rows before the cutoff are deleted too. */
+  queue?: string;
 }
 
 export interface StopOptions {
@@ -232,6 +248,11 @@ export interface Engine {
   resolveApproval(runId: string, name: string, decision: ApprovalDecision): Promise<{ resolved: boolean }>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
   sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
+  /**
+   * Deletes finished runs older than the cutoff, with their steps, waits and idempotency keys, plus
+   * expired idempotency keys. Running, queued and waiting runs are never touched.
+   */
+  purge(options: PurgeOptions): Promise<{ runs: number }>;
   createWorker(options: WorkerOptions): Worker;
   close(): Promise<void>;
 }
@@ -287,7 +308,7 @@ export function createEngine(options: EngineOptions): Engine {
 
     async getRun(id) {
       const { rows } = await pool.query(
-        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors,
+        `SELECT id, queue, task, payload, status, attempt, result, last_error, errors, run_after,
                 (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
                 (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens
          FROM runs WHERE id = $1`,
@@ -306,6 +327,7 @@ export function createEngine(options: EngineOptions): Engine {
         lastError: row.last_error,
         errors: row.errors,
         usage: { usd: row.usage_usd, tokens: row.usage_tokens },
+        runAfter: row.run_after instanceof Date ? row.run_after : null,
       };
     },
 
@@ -315,6 +337,12 @@ export function createEngine(options: EngineOptions): Engine {
          ON CONFLICT (tenant) DO UPDATE
            SET usd_per_day = EXCLUDED.usd_per_day, tokens_per_day = EXCLUDED.tokens_per_day, updated_at = now()`,
         [tenant, budget.usdPerDay ?? null, budget.tokensPerDay ?? null],
+      );
+      // Release parked runs; the next maintenance sweep parks them again if the tenant is still over.
+      await pool.query(
+        `UPDATE runs SET run_after = deferred_run_after, deferred_run_after = NULL, updated_at = now()
+         WHERE tenant = $1 AND deferred_run_after IS NOT NULL`,
+        [tenant],
       );
     },
 
@@ -345,6 +373,10 @@ export function createEngine(options: EngineOptions): Engine {
         budget.usd ?? null,
         budget.tokens ?? null,
       ]);
+    },
+
+    purge(purgeOptions) {
+      return purgeRuns(pool, purgeOptions);
     },
 
     async sendEvent(eventName, payload) {
@@ -383,6 +415,14 @@ const TENANT_OVER_BUDGET = `EXISTS (
     AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
       OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
 
+// Error entry for an attempt cut short by stop({ timeoutMs }). It counts toward maxAttempts like any lost attempt.
+const RELEASED_ERROR = `jsonb_build_object(
+  'attempt', attempt, 'name', 'Released',
+  'message', 'Worker shut down and released the run before its handler finished',
+  'kind', 'transient', 'confidence', 1,
+  'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
+  'at', to_jsonb(now()))`;
+
 interface ClaimedRun {
   id: string;
   task: string;
@@ -409,22 +449,9 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
   let inFlight: { run: ClaimedRun; heartbeat: NodeJS.Timeout; released: boolean; abort: AbortController } | undefined;
 
   async function claim(): Promise<ClaimedRun | undefined> {
-    // Poison pill guard: a run whose final attempt lost its lease goes dead instead of being claimed again.
-    await pool.query(
-      `UPDATE runs SET
-         status = 'dead',
-         last_error = ${LEASE_EXPIRED_ERROR},
-         errors = errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}),
-         lease_owner = NULL, lease_expires = NULL, updated_at = now()
-       WHERE id IN (
-         SELECT id FROM runs
-         WHERE queue = $1 AND status = 'running' AND lease_expires < now() AND attempt >= max_attempts
-         FOR UPDATE SKIP LOCKED
-       )`,
-      [queue],
-    );
     const { rows } = await pool.query<ClaimedRun>(
       `UPDATE runs SET
+         deferred_run_after = NULL,
          last_error = CASE WHEN status = 'running' THEN ${LEASE_EXPIRED_ERROR} ELSE last_error END,
          errors = CASE WHEN status = 'running' THEN errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}) ELSE errors END,
          status = 'running',
@@ -691,6 +718,19 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     return { step, wait, approval };
   }
 
+  // A broken policy must not strand the run: its error becomes a fail action recorded on the run.
+  function decide(verdict: FailureVerdict, ctx: FailureContext): FailureAction {
+    try {
+      const action = policy(verdict, ctx);
+      const problem = invalidAction(action);
+      if (!problem) return action;
+      throw new Error(problem);
+    } catch (policyError) {
+      console.error(`[keel] ${id} failure policy error, failing the run:`, policyError);
+      return { type: "fail", reason: `Policy error: ${policyError instanceof Error ? policyError.message : String(policyError)}` };
+    }
+  }
+
   async function escalate(
     run: ClaimedRun,
     error: unknown,
@@ -743,7 +783,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       console.error(`[keel] ${id} classifier error, treating failure as fatal:`, classifierError);
       verdict = { kind: "fatal", confidence: 0 };
     }
-    const action = policy(verdict, ctx);
+    const action = decide(verdict, ctx);
     if (action.type === "escalate") {
       await escalate(run, error, verdict, action);
       return;
@@ -773,9 +813,56 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     );
   }
 
+  const sweepEveryMs = options.sweepEveryMs ?? 1000;
+  let lastSweep = 0;
+  let lastPurge = 0;
+  async function maintain(): Promise<void> {
+    if (Date.now() - lastSweep >= sweepEveryMs) {
+      lastSweep = Date.now();
+      await sweep();
+    }
+    if (options.retention && Date.now() - lastPurge >= (options.retention.everyMs ?? 60 * 60 * 1000)) {
+      lastPurge = Date.now();
+      await purgeRuns(pool, { olderThan: new Date(Date.now() - options.retention.keepMs), queue });
+    }
+  }
+
+  async function sweep(): Promise<void> {
+    // Poison pill guard: a run whose final attempt lost its lease goes dead instead of being claimed again.
+    // (The claim query already refuses such runs, so sweeping periodically is safe.)
+    await pool.query(
+      `UPDATE runs SET
+         status = 'dead',
+         last_error = ${LEASE_EXPIRED_ERROR},
+         errors = errors || jsonb_build_array(${LEASE_EXPIRED_ERROR}),
+         lease_owner = NULL, lease_expires = NULL, updated_at = now()
+       WHERE id IN (
+         SELECT id FROM runs
+         WHERE queue = $1 AND status = 'running' AND lease_expires < now() AND attempt >= max_attempts
+         FOR UPDATE SKIP LOCKED
+       )`,
+      [queue],
+    );
+    // Park runs of over-budget tenants until the next UTC midnight, so claims skip them through the index.
+    await pool.query(
+      `UPDATE runs SET
+         deferred_run_after = run_after,
+         run_after = GREATEST(run_after, (date_trunc('day', now() AT TIME ZONE 'utc') + interval '1 day') AT TIME ZONE 'utc'),
+         updated_at = now()
+       WHERE id IN (
+         SELECT id FROM runs
+         WHERE queue = $1 AND status IN ('queued', 'waiting') AND tenant IS NOT NULL
+           AND deferred_run_after IS NULL AND ${TENANT_OVER_BUDGET}
+         FOR UPDATE SKIP LOCKED
+       )`,
+      [queue],
+    );
+  }
+
   async function runLoop(): Promise<void> {
     while (running) {
       try {
+        await maintain();
         const run = await claim();
         if (run) await execute(run);
         else await sleep(pollMs);
@@ -814,12 +901,60 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       clearInterval(stuck.heartbeat);
       stuck.abort.abort(new LeaseLostError(`Worker ${id} released run ${stuck.run.id} during shutdown`));
       await pool.query(
-        `UPDATE runs SET status = 'queued', lease_owner = NULL, lease_expires = NULL, updated_at = now()
+        `UPDATE runs SET
+           status = CASE WHEN attempt >= max_attempts THEN 'dead'::run_status ELSE 'queued'::run_status END,
+           last_error = ${RELEASED_ERROR},
+           errors = errors || jsonb_build_array(${RELEASED_ERROR}),
+           lease_owner = NULL, lease_expires = NULL, updated_at = now()
          WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
         [stuck.run.id, id],
       );
     },
   };
+}
+
+async function purgeRuns(pool: pg.Pool, { olderThan, queue }: PurgeOptions): Promise<{ runs: number }> {
+  const { rows } = await pool.query<{ runs: number }>(
+    `WITH doomed AS (
+       SELECT id FROM runs
+       WHERE status IN ('completed', 'failed', 'dead') AND updated_at < $1 AND ($2::text IS NULL OR queue = $2)
+       FOR UPDATE SKIP LOCKED
+     ), purged_steps AS (
+       DELETE FROM steps WHERE run_id IN (SELECT id FROM doomed)
+     ), purged_waits AS (
+       DELETE FROM waits WHERE run_id IN (SELECT id FROM doomed)
+     ), purged_keys AS (
+       DELETE FROM idempotency_keys k
+       WHERE k.run_id IN (SELECT id FROM doomed)
+          OR (k.expires_at < now() AND ($2::text IS NULL OR k.run_id IN (SELECT id FROM runs WHERE queue = $2)))
+     ), purged_runs AS (
+       DELETE FROM runs WHERE id IN (SELECT id FROM doomed) RETURNING id
+     )
+     SELECT count(*)::int AS runs FROM purged_runs`,
+    [olderThan, queue ?? null],
+  );
+  if (queue === undefined) {
+    await pool.query(`DELETE FROM tenant_spend WHERE day < ($1::timestamptz AT TIME ZONE 'utc')::date`, [olderThan]);
+  }
+  return { runs: rows[0]!.runs };
+}
+
+function invalidAction(action: FailureAction | undefined): string | undefined {
+  const validDelay = (ms: unknown) => typeof ms === "number" && Number.isFinite(ms) && ms >= 0;
+  switch (action?.type) {
+    case "retry":
+      return validDelay(action.delayMs) ? undefined : `retry delayMs must be a finite number >= 0, got ${action.delayMs}`;
+    case "retry_modified":
+      return action.delayMs === undefined || validDelay(action.delayMs)
+        ? undefined
+        : `retry_modified delayMs must be a finite number >= 0, got ${action.delayMs}`;
+    case "fallback":
+    case "escalate":
+    case "fail":
+      return undefined;
+    default:
+      return `unknown action ${JSON.stringify(action)}`;
+  }
 }
 
 function toApproval(row: {

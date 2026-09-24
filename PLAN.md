@@ -11,7 +11,7 @@
 | Phase | Milestones | Status |
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
-| 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging | Planned |
+| 2. Production readiness | M10 hardening (done); M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging (planned) | In progress |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -166,11 +166,11 @@ A multi-step agent workflow (research, draft, tool call, send) that shows the wh
 
 ---
 
-# Phase 2: production readiness (planned)
+# Phase 2: production readiness (in progress)
 
 Same rules as phase 1: acceptance tests first, real Postgres, one PR per milestone. New npm packages are named before they are installed and installed by the maintainer through `sfw`.
 
-## M10: Hardening
+## M10: Hardening (done)
 
 Close the correctness bugs and unbounded growth found during phase 1.
 
@@ -185,6 +185,12 @@ Close the correctness bugs and unbounded growth found during phase 1.
 - A throwing policy fails the run within one poll
 - `purge` removes only data of finished runs older than the cutoff; a running or waiting run still replays correctly afterwards
 - With 10,000 deferred runs for one over-budget tenant, claims for other tenants stay as fast as with none (measured, numbers in the PR)
+
+**How it was met:**
+- Released runs record a `Released` error and go `dead` on their final attempt. Policy errors and invalid actions fail the run immediately with `Policy error: ...` as the reason
+- `engine.purge({ olderThan, queue? })` deletes whole finished runs (the maintainer chose this over keeping run rows), and `retention: { keepMs, everyMs }` on a worker purges its own queue
+- A periodic sweep (`sweepEveryMs`, default 1s) replaces the per-claim poison-pill query and parks over-budget tenants' runs at the next UTC midnight; `setTenantBudget` releases them
+- `pnpm bench:deferred`, 4 workers, 300 runs of another tenant, three runs each: no deferred runs 125 to 139 ms; 10,000 deferred with parking off 189 to 190 ms (about 37% slower); parked 136 to 186 ms, with the 186 an outlier on the first run and 136 to 144 ms after. The old risk was real but milder than feared at 10,000 runs
 
 ## M11: Classification with step context
 
@@ -258,8 +264,8 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 
 ### Correctness
 
-- A run released by `stop({ timeoutMs })` on its final attempt gets one extra execution, with no error entry. **M10**
-- A custom policy that throws, or returns an invalid `delayMs`, leaves the run `running` until its lease expires; it then recovers through the `LeaseExpired` path, slowly. Classifier errors are already caught. **M10**
+- ~~A run released by `stop({ timeoutMs })` on its final attempt gets one extra execution, with no error entry.~~ Fixed in M10
+- ~~A custom policy that throws, or returns an invalid `delayMs`, leaves the run `running` until its lease expires.~~ Fixed in M10
 - A handler that wraps a step or wait in `try/catch` and swallows `RunSuspended` or `LeaseLostError` breaks suspension: a budget-paused run can complete with steps skipped. Documented in the guide; a lint rule or a non-Error signal could enforce it. **Accepted**
 - Parallel waits in one handler (`Promise.all` of two waits) are not supported: the run suspends on whichever throws first. **Accepted**
 - A released or superseded handler that ignores `ctx.signal` keeps running alongside the new owner. Its step writes are fenced, but its side effects are only safe if they use the step's idempotency key. **Accepted**
@@ -274,14 +280,16 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 
 ### Performance
 
-- Deferred runs of an over-budget tenant are re-evaluated on every claim; thousands of them slow every claim. **M10**
-- Each idle poll runs two queries (poison-pill sweep, then claim). **M10**
+- ~~Deferred runs of an over-budget tenant are re-evaluated on every claim.~~ Fixed in M10 by parking them (measured: 10,000 deferred runs slowed other tenants by about 37% before, none after)
+- ~~Each idle poll runs two queries (poison-pill sweep, then claim).~~ Fixed in M10: the sweep runs every `sweepEveryMs`
 - Extra queries per claim (decided escalations) and per new step of a tenant's run (tenant budget), and an `EXISTS` check per waiting run. Fine at the current scale. **Measured in M15**
 - One Postgres is the throughput ceiling. **Measured in M15; sharding is a non-goal**
 
 ### Operations
 
-- Steps, waits, expired idempotency keys and `tenant_spend` rows are never cleaned up, so these tables grow without bound. **M10**
+- ~~Steps, waits, expired idempotency keys and `tenant_spend` rows are never cleaned up.~~ Fixed in M10 by `engine.purge` and worker `retention`. Retention is opt-in: without it, tables still grow
+- `purge` deletes in a single statement; purging millions of rows at once holds locks for a long time. Run it often with a short `everyMs` rather than rarely. **Accepted**
+- The parking test compares against the next UTC midnight, so it can fail if it runs across midnight. **Accepted**
 - There is no UI; run state is available through `getRun` and SQL. **M13**
 
 ### Classification

@@ -147,7 +147,7 @@ keel is an **experimental project**, and the name is not final. All planned mile
 
 - Budgets can overshoot by one step, because a step's cost is known only after it runs.
 - Idempotency keys protect external calls only for services that accept them.
-- Steps, idempotency keys and spend records are never cleaned up; there is no retention job yet.
+- Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
 - A single Postgres instance is the throughput ceiling (thousands of jobs per second).
 - There is no dashboard. Run state is available through `getRun` and SQL.
 
