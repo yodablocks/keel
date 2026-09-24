@@ -1,0 +1,37 @@
+keel demo: queue demo-d2855a30, classifier: Jev (jev-latest)
+[demo] enqueued run fe403be5-be66-43b2-b1ad-ff68e749f5bb with a $0.125 budget
+[run] queued (attempt 0, spent $0.00)
+[worker A] started (Jev classifier, jev-latest)
+[worker A] calling model for research
+[run] running (attempt 1, spent $0.00)
+[worker A] calling model for plan
+[worker A] attempt 1 failed: "Model requested tool `serch_web`, which is not in the provided tool list"
+[worker A]   classified as bad_output (confidence 0.96)
+[worker A]   action: retry_modified, hint: The previous attempt produced unusable output: Model requested tool `serch_web`, which is not in the provided tool list
+[worker A] calling model for plan (with hint)
+[worker A] calling model for draft
+[demo] SIGKILL worker A (mid-draft, no cleanup)
+[demo] starting worker B; it can take the run once A's 1.5s lease expires
+[worker B] started (Jev classifier, jev-latest)
+[worker B] calling model for draft
+[worker B] sending email (idempotency key keel:fe403be5-be66-43b2-b1ad-ff68e749f5bb:send)
+[worker B] attempt 3 failed: "429 Too Many Requests: email API rate limit"
+[worker B]   classified as transient (confidence 1.00)
+[worker B]   action: retry, backoff 3027ms
+[run] queued (attempt 3, spent $0.12)
+[worker B] sending email (idempotency key keel:fe403be5-be66-43b2-b1ad-ff68e749f5bb:send)
+[worker B] attempt 4 failed: "Run fe403be5-be66-43b2-b1ad-ff68e749f5bb spent $0.13 of its $0.125 budget before step "follow-up""
+[worker B]   classified as over_budget (confidence 1.00)
+[worker B]   action: escalate, reason: Run fe403be5-be66-43b2-b1ad-ff68e749f5bb spent $0.13 of its $0.125 budget before step "follow-up"
+[run] waiting (attempt 4, spent $0.13)
+[reviewer] pending approval "escalation-4": "research-agent" failed on attempt 4 and needs a decision: Run fe403be5-be66-43b2-b1ad-ff68e749f5bb spent $0.13 of its $0.125 budget before step "follow-up"
+[reviewer] reviewer raised the budget and approved
+[worker B] calling model for follow-up
+[run] completed (attempt 5, spent $0.15)
+[demo] run completed after 5 attempts, spent $0.15
+[demo] result: {"draft":"A short brief on durable execution, from 2 notes and a search_web for \"durable execution\".","followUp":"Scheduled a follow-up question for next week.","messageId":"msg-fe403be5"}
+[demo] error history:
+  attempt 1: Error: Model requested tool `serch_web`, which is not in the provided tool list -> bad_output, retry_modified
+  attempt 2: LeaseExpired: Worker lost its lease: it crashed, was killed, or stalled without heartbeats -> transient, retry
+  attempt 3: Error: 429 Too Many Requests: email API rate limit -> transient, retry
+  attempt 4: OverBudgetError: Run fe403be5-be66-43b2-b1ad-ff68e749f5bb spent $0.13 of its $0.125 budget before step "follow-up" -> over_budget, escalate

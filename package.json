@@ -14,7 +14,8 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
-    "eval:classifier": "node --env-file-if-exists=.env scripts/eval-classifier.ts"
+    "eval:classifier": "node --env-file-if-exists=.env scripts/eval-classifier.ts",
+    "demo": "node --env-file-if-exists=.env scripts/demo.ts"
   },
   "dependencies": {
     "pg": "^8.23.0"
