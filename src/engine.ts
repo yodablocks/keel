@@ -383,6 +383,14 @@ const TENANT_OVER_BUDGET = `EXISTS (
     AND ((b.usd_per_day IS NOT NULL AND coalesce(s.usd, 0) >= b.usd_per_day)
       OR (b.tokens_per_day IS NOT NULL AND coalesce(s.tokens, 0) >= b.tokens_per_day)))`;
 
+// Error entry for an attempt cut short by stop({ timeoutMs }). It counts toward maxAttempts like any lost attempt.
+const RELEASED_ERROR = `jsonb_build_object(
+  'attempt', attempt, 'name', 'Released',
+  'message', 'Worker shut down and released the run before its handler finished',
+  'kind', 'transient', 'confidence', 1,
+  'action', jsonb_build_object('type', 'retry', 'delayMs', 0),
+  'at', to_jsonb(now()))`;
+
 interface ClaimedRun {
   id: string;
   task: string;
@@ -814,7 +822,11 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       clearInterval(stuck.heartbeat);
       stuck.abort.abort(new LeaseLostError(`Worker ${id} released run ${stuck.run.id} during shutdown`));
       await pool.query(
-        `UPDATE runs SET status = 'queued', lease_owner = NULL, lease_expires = NULL, updated_at = now()
+        `UPDATE runs SET
+           status = CASE WHEN attempt >= max_attempts THEN 'dead'::run_status ELSE 'queued'::run_status END,
+           last_error = ${RELEASED_ERROR},
+           errors = errors || jsonb_build_array(${RELEASED_ERROR}),
+           lease_owner = NULL, lease_expires = NULL, updated_at = now()
          WHERE id = $1 AND lease_owner = $2 AND status = 'running'`,
         [stuck.run.id, id],
       );
