@@ -8,7 +8,6 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
       - keel-pg:/var/lib/postgresql/data
 
 volumes:

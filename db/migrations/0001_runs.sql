@@ -1,8 +1,12 @@
--- Schema draft for M1 (queue). Later milestones add tables via new files, not edits here.
+-- M1 queue. Later milestones add new files here; never edit an applied migration.
+-- IF NOT EXISTS guards let this adopt databases created before migrations existed.
 
-CREATE TYPE run_status AS ENUM ('queued', 'running', 'completed', 'failed', 'dead');
+DO $$ BEGIN
+  CREATE TYPE run_status AS ENUM ('queued', 'running', 'completed', 'failed', 'dead');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE runs (
+CREATE TABLE IF NOT EXISTS runs (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   queue          text        NOT NULL DEFAULT 'default',
   task           text        NOT NULL,
@@ -20,7 +24,7 @@ CREATE TABLE runs (
 );
 
 -- Claim path: SELECT ... WHERE status = 'queued' AND run_after <= now() ORDER BY run_after FOR UPDATE SKIP LOCKED
-CREATE INDEX runs_claimable ON runs (queue, run_after) WHERE status = 'queued';
+CREATE INDEX IF NOT EXISTS runs_claimable ON runs (queue, run_after) WHERE status = 'queued';
 
 -- Reaper path: running runs whose lease has expired
-CREATE INDEX runs_leased ON runs (lease_expires) WHERE status = 'running';
+CREATE INDEX IF NOT EXISTS runs_leased ON runs (lease_expires) WHERE status = 'running';
