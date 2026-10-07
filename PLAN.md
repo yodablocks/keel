@@ -12,7 +12,7 @@
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
 | 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging | Done |
-| October 2026 refresh | Node 24 and 26 in CI, dependency updates, a real workload (`openroles:sync`), a held-out classifier eval from public issues, `fetch` cause codes in rules, bench rerun | Done |
+| October 2026 refresh | Node 24 and 26 in CI, dependency updates, a real workload (`openroles:sync`), held-out classifier evals from public issues (75 cases, then 60 fresh ones), `fetch` cause codes in rules, bench rerun | Done |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -334,7 +334,7 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 ### Classification
 
 - The eval set is synthetic and labelled by the classifier's author, and at 100% it is too easy to show gains. M11 added the tooling to build a real set (`pnpm eval:export`). In October 2026 a held-out set of 75 error messages from public SDK issues was added (`eval-sets/public-issues.json`, labels committed before any classifier ran): rules 37%, Jev 67 to 68%, the cascade 61 to 63%. The labels are still the author's, and the messages are mostly from development, not production. **Partly addressed; open: a second labeller and production failures**
-- The cascade's fallback below 0.5 confidence uses the rule verdict, and rules answer `fatal` without an explicit signal. On the public set this cost about 3 of 75 cases against Jev alone (7 verdicts changed: 1 better, 4 worse). A change, such as keeping Jev's answer when rules have no signal, would be tuned on that set and needs a fresh one to check. **Open**
+- The cascade's fallback below 0.5 confidence uses the rule verdict, and rules answer `fatal` without an explicit signal. On the public set this cost about 3 of 75 cases against Jev alone. Keeping Jev's answer when rules have no signal was tried and checked on a fresh, mechanically sampled set of 60 (`eval-sets/fresh-issues.json`) against a rule fixed in advance; it lost (cascade 48 to 49 of 60 as shipped, 43 to 44 with the change) and was reverted. The two sets disagree, probably because of their label mix (25 of 75 `fatal` against 43 of 60), so the fallback stays as it is. **Accepted for now; revisit with a larger set or a second labeller**
 - ~~Rules ignored the network code that `fetch` puts on `error.cause`, so `fetch failed` network errors failed without a retry.~~ Fixed in October 2026, found by the `openroles:sync` workload; the error history keeps the code as `causeCode`
 - Jev adds one API round trip to each failure without an explicit signal, about 650 input tokens per call on the eval set. **Accepted**
 

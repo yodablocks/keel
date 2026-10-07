@@ -37,6 +37,23 @@ left unlabelled and so excluded, because the message carries no information to j
 labeller asked an AI assistant for a suggestion; it suggested `needs_human` (with `fatal` as the alternative) and that label
 was chosen. Every other label was made without suggestions.
 
+## fresh-issues.json
+
+60 error lines sampled by `pnpm eval:harvest` (`scripts/eval-harvest.ts`) on 2026-10-07, to check a cascade
+fallback change without tuning on `public-issues.json`. The script fixes everything that decides which cases
+appear: 13 repositories none of which were used for `public-issues.json` (js-genai, Mastra, LlamaIndexTS, the
+Mistral, Ollama and Cohere clients, LangGraph.js, huggingface.js, Stagehand, Trigger.dev, Inngest, the Temporal
+TypeScript SDK, E2B), 7 search queries, the exclusions, deduplication against the earlier sets, and a seeded
+shuffle (20261008). `status` and `code` follow the same rules as above.
+
+- The first run, over the first 6 repositories, found only 40 eligible lines. Only that count was seen; its
+  output was set aside unread, and the last 7 repositories were added before the second run.
+- 151 eligible lines, 60 sampled. All 60 are labelled, without suggestions, and the labels were committed
+  (d1935ed) before any classifier ran on the set.
+- The labelled mix is 43 `fatal`, 8 `transient`, 5 `bad_input` and 4 `bad_output`, with no `needs_human`. A
+  classifier that always answers `fatal` gets 43 of 60 kinds right, so kind accuracy on this set means little
+  alone.
+
 ## openroles-2026-10-07.json
 
 The one failure from the first `pnpm openroles:sync` run (447 boards): a Lever board that answered 404. Exported
@@ -44,7 +61,7 @@ with `--blind` and labelled the same way. One case is a record, not a score.
 
 ## Labelling rules
 
-Label with `pnpm eval:label eval-sets/public-issues.json` before any classifier has been run on the set.
+Label with `pnpm eval:label <file>` before any classifier has been run on the set.
 
 - Judge from what the case shows. Don't run a classifier, and don't open the source issue unless a message is
   unreadable without it; the issue's discussion often reveals the cause.
