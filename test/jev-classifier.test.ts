@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BadOutputError, JevClassifier } from "../src/index.ts";
+import { BadOutputError, JevClassifier, NO_SIGNAL_CONFIDENCE } from "../src/index.ts";
 import type { FailureContext, SystemOneClient } from "../src/index.ts";
 
 type Probabilities = Record<string, number>;
@@ -57,6 +57,15 @@ test("a low-confidence Jev answer falls back to the rule verdict", async () => {
   assert.deepEqual(verdict, { kind: "transient", confidence: 0.9 }, "the rule verdict, not Jev's");
 });
 
+test("a low-confidence Jev answer is still used when rules found no signal, since their default is not evidence", async () => {
+  const { client } = fakeClient({ transient: 0.1, bad_input: 0.1, bad_output: 0.45, needs_human: 0.05, fatal: 0.3 }, 0.36);
+  const unparseable = new SyntaxError("JSON Parse error: Unrecognized token '`'");
+
+  const verdict = await new JevClassifier({ client, minConfidence: 0.5 }).classify(ctx(unparseable));
+
+  assert.deepEqual(verdict, { kind: "bad_output", confidence: 0.36 }, "Jev's answer, not the rules' fatal default");
+});
+
 test("when Jev is unavailable the rule verdict is used instead of failing the classification", async () => {
   const client: SystemOneClient = {
     async systemOne() {
@@ -66,7 +75,7 @@ test("when Jev is unavailable the rule verdict is used instead of failing the cl
 
   const verdict = await new JevClassifier({ client }).classify(ctx(new TypeError("cannot read properties of undefined")));
 
-  assert.deepEqual(verdict, { kind: "fatal", confidence: 0.5 });
+  assert.deepEqual(verdict, { kind: "fatal", confidence: NO_SIGNAL_CONFIDENCE });
 });
 
 test("the error's cause is sent to Jev, since fetch hides network errors behind it", async () => {
