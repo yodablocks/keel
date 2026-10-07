@@ -1,4 +1,4 @@
-import { NO_SIGNAL_CONFIDENCE, RuleClassifier } from "./failure.ts";
+import { RuleClassifier } from "./failure.ts";
 import type { FailureClassifier, FailureContext, FailureKind, FailureVerdict } from "./failure.ts";
 
 const PAYLOAD_PREVIEW_CHARS = 2000;
@@ -48,9 +48,8 @@ interface ChoiceAnswer {
 export interface JevClassifierOptions {
   client: SystemOneClient;
   /**
-   * Jev answers below this confidence give way to the rule verdict, when the rules found an explicit signal (a status,
-   * code or known error name). Without one the rule verdict is only a default, so Jev's answer is used however unsure.
-   * Defaults to 0.5, the TypeSafe docs' suggested floor for "do not act". Tune it on your own failures.
+   * Jev answers below this confidence are ignored in favor of the rule verdict. Defaults to 0.5,
+   * the TypeSafe docs' suggested floor for "do not act". Tune it on your own failures.
    */
   minConfidence?: number;
 }
@@ -59,8 +58,7 @@ const ASKED_KINDS = new Set<string>(["transient", "bad_input", "bad_output", "ne
 
 /**
  * Cascade: explicit signals (error classes, rule confidence 1) are classified by rules for free.
- * Everything else is asked of Jev. Rules win when Jev is unavailable, or when Jev is unsure and the rules found a
- * signal of their own.
+ * Everything else is asked of Jev, falling back to rules when Jev is unsure or unavailable.
  */
 export class JevClassifier implements FailureClassifier {
   readonly #rules = new RuleClassifier();
@@ -90,7 +88,7 @@ export class JevClassifier implements FailureClassifier {
     }
     if (typeof answer?.choice !== "string" || !ASKED_KINDS.has(answer.choice)) return byRules;
     const confidence = typeof answer.confidence === "number" ? answer.confidence : 0;
-    if (confidence < this.#minConfidence && byRules.confidence > NO_SIGNAL_CONFIDENCE) return byRules;
+    if (confidence < this.#minConfidence) return byRules;
     return { kind: answer.choice as FailureKind, confidence };
   }
 }

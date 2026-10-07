@@ -60,12 +60,6 @@ export class OverBudgetError extends KeelError {
   override name = "OverBudgetError";
 }
 
-/**
- * The confidence RuleClassifier gives a verdict when it found no explicit signal (no error class, status, code or
- * known error name). Such a verdict is a default, not evidence: JevClassifier prefers even an unsure Jev answer to it.
- */
-export const NO_SIGNAL_CONFIDENCE = 0.5;
-
 const TRANSIENT_CODES = new Set(["ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EPIPE", "EAI_AGAIN", "UND_ERR_SOCKET"]);
 const TRANSIENT_NAMES = new Set(["TimeoutError"]);
 const VALIDATION_NAMES = new Set(["ZodError", "ValidationError"]);
@@ -77,7 +71,7 @@ export class RuleClassifier implements FailureClassifier {
     if (error instanceof BadOutputError) return { kind: "bad_output", confidence: 1 };
     if (error instanceof NeedsHumanError) return { kind: "needs_human", confidence: 1 };
     if (error instanceof OverBudgetError) return { kind: "over_budget", confidence: 1 };
-    if (!(error instanceof Error)) return { kind: "fatal", confidence: NO_SIGNAL_CONFIDENCE };
+    if (!(error instanceof Error)) return { kind: "fatal", confidence: 0.5 };
 
     const { status, statusCode, code } = error as Error & { status?: unknown; statusCode?: unknown; code?: unknown };
     const http = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
@@ -92,7 +86,7 @@ export class RuleClassifier implements FailureClassifier {
     if (typeof causeCode === "string" && TRANSIENT_CODES.has(causeCode)) return { kind: "transient", confidence: 0.9 };
     if (TRANSIENT_NAMES.has(error.name)) return { kind: "transient", confidence: 0.9 };
     if (VALIDATION_NAMES.has(error.name)) return { kind: "bad_input", confidence: 0.7 };
-    return { kind: "fatal", confidence: NO_SIGNAL_CONFIDENCE };
+    return { kind: "fatal", confidence: 0.5 };
   }
 }
 

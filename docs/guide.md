@@ -169,7 +169,7 @@ It is a cascade:
 
 1. Explicit signals (keel error classes like `BadOutputError`, `OverBudgetError`) are classified by rules. No API call.
 2. Everything else is one Jev Choice question over `transient / bad_input / bad_output / needs_human / fatal`, given the task, the failing step, the attempt, the error (name, message, status, code, cause), the rejected output and a truncated payload.
-3. If the call fails, the rule verdict is used, so a TypeSafe outage never breaks failure handling. If Jev's confidence is below `minConfidence`, the rule verdict is used only when the rules found an explicit signal of their own (a status, an error code, or a known error name such as `TimeoutError`). Without one, the rules can only answer `fatal` by default (confidence `NO_SIGNAL_CONFIDENCE`), so Jev's answer is used, however unsure.
+3. If Jev's confidence is below `minConfidence`, or the call fails, the rule verdict is used. A TypeSafe outage never breaks failure handling.
 
 ### Give the classifier context
 

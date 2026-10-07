@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BadOutputError, NeedsHumanError, NO_SIGNAL_CONFIDENCE, RuleClassifier } from "../src/index.ts";
+import { BadOutputError, NeedsHumanError, RuleClassifier } from "../src/index.ts";
 
 function httpError(status: number): Error {
   return Object.assign(new Error(`HTTP ${status}`), { status });
@@ -39,13 +39,3 @@ for (const [label, error, kind] of cases) {
     assert.ok(verdict.confidence > 0 && verdict.confidence <= 1);
   });
 }
-
-test("rules mark a verdict without an explicit signal with NO_SIGNAL_CONFIDENCE, and only those", async () => {
-  const rules = new RuleClassifier();
-  const classify = (error: unknown) => rules.classify({ error, task: "t", attempt: 1, maxAttempts: 3, payload: {} });
-  assert.equal((await classify(new Error("something odd happened"))).confidence, NO_SIGNAL_CONFIDENCE);
-  assert.equal((await classify("oops")).confidence, NO_SIGNAL_CONFIDENCE);
-  for (const [, error] of cases.filter(([label]) => label !== "plain bug" && label !== "thrown string" && !label.includes("unknown code"))) {
-    assert.ok((await classify(error)).confidence > NO_SIGNAL_CONFIDENCE, `${String(error)} carries a signal`);
-  }
-});
