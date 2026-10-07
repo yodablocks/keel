@@ -1,0 +1,1303 @@
+{
+  "model": "jev-1.13.0",
+  "summary": {
+    "source": "eval-sets/public-issues.json",
+    "cases": 75,
+    "rules": 28,
+    "withoutContext": {
+      "jevRaw": 50,
+      "cascade": 47,
+      "belowThreshold": 8
+    },
+    "withContext": {
+      "jevRaw": 51,
+      "cascade": 46,
+      "belowThreshold": 11
+    },
+    "jevCalls": 150,
+    "models": [
+      "jev-1.13.0"
+    ],
+    "tokens": {
+      "input": 103116,
+      "output": 8814
+    }
+  },
+  "rows": [
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid refresh token",
+      "label": "needs_human",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.92,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.93,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Package subpath './dist/tools/base' is not defined by \"exports\" in /home/veith/projects/automagically/ts/apps/next-automagically/node_modules/langchain/package.json",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.95,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.96,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "MCP error -32000: Connection closed",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "messages.N.content.0: Input tag 'fallback' found using 'type' does not match any of the expected tags: 'bash_code_execution_tool_result', 'code_execution_tool_result', 'connector_text', 'container_upload', 'document', 'image', 'mid_conv_system', 'redacted_thinking', 'search_result', 'server_tool_use', ...",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.55,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.59,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "can't resolve reference #/$defs/ResponseModel from id #",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.55,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.61,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot find module '/Users/adam/src/maxcare-ai/monorepo/node_modules/@modelcontextprotocol/sdk/dist/cjs/index.js'",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Unsupported message content type: {\"type\":\"input_text\",\"text\":\"User info (session context): ...\"}",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.73,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.72,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to process successful response",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.5,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.42,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Model tried to call unavailable tool 'parallel'. Available tools: tool_a, tool_b, tool_c, tool_d, tool_e, tool_f.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.99,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.99,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "The model returned the following errors: output_config.format: Extra inputs are not permitted",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.72,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.72,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "fetch failed",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.86,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.82,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "JSON Parse error: Unrecognized token '`'",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.36,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.37,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Request timed out.",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "MCP error -32602: MCP error -32602: Resource acme://products not found",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.81,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.83,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "connect ETIMEDOUT 104.18.6.192:443",
+      "label": "transient",
+      "rules": "transient",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Request contains an invalid argument.",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.76,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.76,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "undefined: This model doesn't support the image field for user messages. Remove image and try again.",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.91,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.91,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "MCP error -32001: Request timed out",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 No tool output found for function call xxxxxxxx.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.72,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.72,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 Item 'rs_686370f3009881929263cb098959e0650e747022c0427999' of type 'reasoning' was provided without its required following item.",
+      "label": "fatal",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.67,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.65,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3.content.1.tool_use.input: Input should be a valid dictionary\"}}",
+      "label": "bad_output",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.54,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.46,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "MCP error -32601: Method not found",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.79,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.79,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid JSON response",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.97,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.96,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Unable to show generated images. All images were filtered out because they violated Google's Responsible AI practices.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "needs_human",
+        "jevConfidence": 0.92,
+        "cascade": "needs_human"
+      },
+      "withContext": {
+        "jev": "needs_human",
+        "jevConfidence": 0.92,
+        "cascade": "needs_human"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to parse. Text: \"10,0,0,10,0,10,10,0,10,0,10,0,10,0,0\". Error: TypeError: text.trim is not a function",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.69,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.71,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Type validation failed: Value: {\"type\":\"finish\",\"finishReason\":\"tool-calls\"}.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.5,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.5,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Sandbox path \"/mnt/shared-data\" must stay within /workspace.",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.83,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.81,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Unsupported use of 'seed' parameter. This parameter is not supported for the selected model.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.75,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.76,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Error POSTing to endpoint: {\"jsonrpc\":\"2.0\",\"id\":0,\"error\":{\"code\":-32001,\"message\":\"UCP discovery failed\",\"data\":{\"code\":\"invalid_profile_url\",\"content\":\"Unable to fetch agent profile: Missing profile uri\"}}}",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.37,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.37,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "MCP error -32603: Date cannot be represented in JSON Schema",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.31,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.31,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Unsupported AI SDK specificationVersion: v4. Only v2 and v3 are supported.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.68,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.73,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "read ECONNRESET",
+      "label": "transient",
+      "rules": "transient",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid prompt: The messages must be a ModelMessage[]. If you have passed a UIMessage[], you can use convertToModelMessages to convert them.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.74,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.7,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to run function tools: TypeError: Cannot read properties of null (reading 'length')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.73,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.71,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot read private member from an object whose class did not declare it at __classPrivateFieldGet",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "404 Not found",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.68,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.68,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 Invalid schema for response_format 'event': schema must be a JSON Schema of 'type: \"object\"', got 'type: \"string\"'.",
+      "label": "fatal",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.57,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.56,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid arguments for tool sun: JSON parsing failed: Text: {\"query\": \"Where does the user live?\"}{\"query\": \"What color is the sun?\"}.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.92,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.94,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to parse. Text: \"undefined\". Error: TypeError: Cannot read properties of undefined (reading 'trim')",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.5,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.51,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "JSON Parse error: Unexpected identifier \"Shutting\"",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.53,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.57,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Connect Timeout Error (attempted address: 10.2.2.164:80, timeout: 10000ms)",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.99,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Connection error.",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed after 3 attempts. Last error: Cannot read properties of undefined (reading 'input_tokens')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.83,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.84,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to parse. Text: \"\"\"\". Error: \"Unexpected end of JSON input\"",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.74,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.73,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "other side closed",
+      "label": "transient",
+      "rules": "transient",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid error response format: Gateway request failed",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.49,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.46,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "No output generated.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.38,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.39,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "connect ECONNREFUSED 127.0.0.1:3113",
+      "label": "transient",
+      "rules": "transient",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.94,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.94,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "403 {\"error\":{\"type\":\"forbidden\",\"message\":\"Request not allowed\"}}",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.77,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.75,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Type validation failed: Value: {\"type\":\"error\",\"error\":\"{\\\"message\\\":\\\"The system encountered an unexpected error during processing. Try your request again.\\\"}\"}.",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.16,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.24,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "JSON parsing failed: Text: .",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.79,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.81,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid state: ReadableStream is locked",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.8,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.82,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid JSON provided",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.75,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.7,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Received tool input did not match expected schema",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.69,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.67,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "No such object: my-bucket/folder/My%20File.pdf",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.68,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.63,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot read properties of undefined (reading 'timeoutType')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.92,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.91,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Connection error.",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Unexpected end of JSON input",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.43,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.4,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "No object generated: could not parse the response.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.96,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.97,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "body used already for: https://api.openai.com/v1/chat/completions",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.54,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.49,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Model produced deferred function call syntax.lookup_syntax_tree before it was loaded via tool_search.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.9,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.9,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "422 Failed to deserialize the JSON body into the target type: tools[0]: missing field `sources` at line 1 column 65",
+      "label": "fatal",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.62,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.65,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Type validation failed: Value: {}.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.55,
+        "cascade": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.54,
+        "cascade": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Error: Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.97,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.96,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to connect to streamable HTTP server \"server-xxx, url: http://127.0.0.1:8090/tools/mcp\":",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.79,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.77,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "connect ETIMEDOUT ::1:3113",
+      "label": "transient",
+      "rules": "transient",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "undefined is not an object (evaluating 'req.headers')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.9,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.94,
+        "cascade": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "request to https://jsonplaceholder.typicode.com/todos/1 failed, reason: getaddrinfo EAI_AGAIN jsonplaceholder.typicode.com",
+      "label": "transient",
+      "rules": "transient",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "messages.1: `tool_use` ids were found without `tool_result` blocks immediately after: tool-example-123. Each `tool_use` block must have a corresponding `tool_result` block in the next message.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.81,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.85,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "No object generated: response did not match schema.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.98,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.98,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "request ended without sending any chunks",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.82,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.86,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid arguments for tool food: Type validation failed: Value: {\"food\":\"milk\"}.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.82,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.8,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Premature close",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.95,
+        "cascade": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.96,
+        "cascade": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Model produced deferred MCP call <example_server> before it was loaded via tool_search.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.84,
+        "cascade": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.79,
+        "cascade": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Type validation failed for messages[7].parts[11].input (create_artifact, id: \"toolu_...\"): Value: {}.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.47,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.47,
+        "cascade": "fatal"
+      }
+    }
+  ]
+}

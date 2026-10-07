@@ -99,6 +99,8 @@ export interface RunError {
   code?: string | number;
   /** The error's cause, as "Name: message". */
   cause?: string;
+  /** The cause's code, such as ECONNRESET under fetch's "fetch failed". */
+  causeCode?: string | number;
   /** The rejected output attached to the error; replaced by a truncated JSON string when large. */
   output?: unknown;
   kind: FailureKind;
@@ -1312,15 +1314,17 @@ function previewOutput(output: unknown): unknown {
   return `${json.slice(0, OUTPUT_PREVIEW_CHARS)}... (truncated)`;
 }
 
-function serializeError(err: unknown): Pick<RunError, "name" | "message" | "status" | "code" | "cause"> {
+function serializeError(err: unknown): Pick<RunError, "name" | "message" | "status" | "code" | "cause" | "causeCode"> {
   if (!(err instanceof Error)) return { name: "NonError", message: String(err) };
   const { status, statusCode, code, cause } = err as Error & { status?: unknown; statusCode?: unknown; code?: unknown };
   const http = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
+  const causeCode = (cause as { code?: unknown } | undefined)?.code;
   return {
     name: err.name,
     message: err.message,
     ...(http !== undefined && { status: http }),
     ...((typeof code === "string" || typeof code === "number") && { code }),
     ...(cause !== undefined && { cause: cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause) }),
+    ...((typeof causeCode === "string" || typeof causeCode === "number") && { causeCode }),
   };
 }

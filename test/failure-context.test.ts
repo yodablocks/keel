@@ -70,7 +70,7 @@ test("a failure outside any step has no step name", async (t) => {
   assert.equal(seen[0]?.step, undefined);
 });
 
-test("the error history keeps the step, status, code, cause and output of each failure", async (t) => {
+test("the error history keeps the step, status, code, cause, cause code and output of each failure", async (t) => {
   const engine = createEngine({ connectionString: DATABASE_URL });
   const queue = uniqueQueue();
   const worker = engine.createWorker({
@@ -78,7 +78,7 @@ test("the error history keeps the step, status, code, cause and output of each f
     tasks: {
       agent: async (_payload, ctx) => {
         await ctx.step.run("send", () => {
-          throw Object.assign(new Error("rate limited", { cause: new Error("upstream quota") }), {
+          throw Object.assign(new Error("rate limited", { cause: Object.assign(new Error("upstream quota"), { code: "E_UPSTREAM" }) }), {
             status: 429,
             code: "E_QUOTA",
             output: { retryAfterSeconds: 30 },
@@ -104,5 +104,6 @@ test("the error history keeps the step, status, code, cause and output of each f
   assert.equal(entry.status, 429);
   assert.equal(entry.code, "E_QUOTA");
   assert.equal(entry.cause, "Error: upstream quota");
+  assert.equal(entry.causeCode, "E_UPSTREAM");
   assert.deepEqual(entry.output, { retryAfterSeconds: 30 });
 });

@@ -1,0 +1,45 @@
+{
+  "model": "jev-1.13.0",
+  "summary": {
+    "source": "eval-sets/openroles-2026-10-07.json",
+    "cases": 1,
+    "rules": 0,
+    "withoutContext": {
+      "jevRaw": 0,
+      "cascade": 0,
+      "belowThreshold": 0
+    },
+    "withContext": {
+      "jevRaw": 0,
+      "cascade": 0,
+      "belowThreshold": 0
+    },
+    "jevCalls": 2,
+    "models": [
+      "jev-1.13.0"
+    ],
+    "tokens": {
+      "input": 1373,
+      "output": 116
+    }
+  },
+  "rows": [
+    {
+      "task": "read-board",
+      "step": "fetch-board",
+      "message": "lever:suger: HTTP 404 Not Found",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.61,
+        "cascade": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.7,
+        "cascade": "fatal"
+      }
+    }
+  ]
+}

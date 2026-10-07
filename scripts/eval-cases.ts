@@ -18,7 +18,7 @@ export interface ExportedCase {
   recordedKind: FailureKind;
   task: string;
   step?: string;
-  error: Pick<RunError, "name" | "message" | "status" | "code" | "cause">;
+  error: Pick<RunError, "name" | "message" | "status" | "code" | "cause" | "causeCode">;
   output?: unknown;
   runId: string;
   attempt: number;
@@ -55,6 +55,7 @@ export async function exportFailures(
         ...(e.status !== undefined && { status: e.status }),
         ...(e.code !== undefined && { code: e.code }),
         ...(e.cause !== undefined && { cause: e.cause }),
+        ...(e.causeCode !== undefined && { causeCode: e.causeCode }),
       },
       ...(e.output !== undefined && { output: e.output }),
       runId: id,
@@ -81,9 +82,10 @@ export async function loadCases(file: string): Promise<{ cases: FailureCase[]; s
   };
 }
 
-// Rebuilds an Error with the same fields rules and Jev read live: name, message, status, code, cause.
+// Rebuilds an Error with the same fields rules and Jev read live: name, message, status, code, cause and its code.
 function rebuildError(e: ExportedCase["error"]): Error {
-  const error = new Error(e.message, e.cause === undefined ? undefined : { cause: new Error(e.cause) });
+  const cause = e.cause === undefined ? undefined : Object.assign(new Error(e.cause), e.causeCode !== undefined && { code: e.causeCode });
+  const error = new Error(e.message, cause === undefined ? undefined : { cause });
   error.name = e.name;
   return Object.assign(error, {
     ...(e.status !== undefined && { status: e.status }),

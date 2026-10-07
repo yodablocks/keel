@@ -1,0 +1,14 @@
+[
+  {
+    "label": "bad_input",
+    "task": "read-board",
+    "step": "fetch-board",
+    "error": {
+      "name": "Error",
+      "message": "lever:suger: HTTP 404 Not Found",
+      "status": 404
+    },
+    "runId": "1ffff76f-0058-445a-a8cf-c1fe1c518ff1",
+    "attempt": 1
+  }
+]

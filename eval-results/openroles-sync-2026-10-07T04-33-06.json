@@ -1,0 +1,38 @@
+{
+  "queue": "openroles-2026-10-07-04-27-08",
+  "classifier": "Jev cascade, jev-latest",
+  "at": "2026-10-07T04:33:06.524Z",
+  "durationSeconds": 358,
+  "boards": 447,
+  "bySource": {
+    "ashby": 357,
+    "greenhouse": 60,
+    "lever": 30
+  },
+  "byStatus": {
+    "completed": 446,
+    "failed": 1
+  },
+  "jobs": 8287,
+  "runsWithFailures": 1,
+  "failures": 1,
+  "failuresByKind": {
+    "fatal": 1
+  },
+  "failuresByAction": {
+    "fail": 1
+  },
+  "recoveredAfterRetry": 0,
+  "errors": [
+    {
+      "runId": "1ffff76f-0058-445a-a8cf-c1fe1c518ff1",
+      "attempt": 1,
+      "name": "Error",
+      "message": "lever:suger: HTTP 404 Not Found",
+      "status": 404,
+      "kind": "fatal",
+      "confidence": 0.77,
+      "action": "fail"
+    }
+  ]
+}
