@@ -21,12 +21,14 @@ const cases: Array<[label: string, error: unknown, kind: string]> = [
   ["socket timeout", codeError("ETIMEDOUT"), "transient"],
   ["connection reset", codeError("ECONNRESET"), "transient"],
   ["fetch timeout", named("TimeoutError"), "transient"],
+  ["fetch failed, with the network code on its cause", new TypeError("fetch failed", { cause: codeError("ECONNREFUSED") }), "transient"],
   ["422 unprocessable input", httpError(422), "bad_input"],
   ["zod validation failure", named("ZodError"), "bad_input"],
   ["model returned unusable output", new BadOutputError("tool name does not exist"), "bad_output"],
   ["handler asks for a human", new NeedsHumanError("refund over limit"), "needs_human"],
   ["401 bad credentials", httpError(401), "fatal"],
   ["plain bug", new TypeError("cannot read properties of undefined"), "fatal"],
+  ["fetch failed, with an unknown code on its cause", new TypeError("fetch failed", { cause: codeError("ENOTFOUND") }), "fatal"],
   ["thrown string", "oops", "fatal"],
 ];
 

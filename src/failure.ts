@@ -80,7 +80,10 @@ export class RuleClassifier implements FailureClassifier {
       if (http === 400 || http === 422) return { kind: "bad_input", confidence: 0.8 };
       return { kind: "fatal", confidence: 0.8 };
     }
+    // fetch() reports network failures as TypeError("fetch failed") with the code on its cause.
+    const causeCode = (error.cause as { code?: unknown } | undefined)?.code;
     if (typeof code === "string" && TRANSIENT_CODES.has(code)) return { kind: "transient", confidence: 0.9 };
+    if (typeof causeCode === "string" && TRANSIENT_CODES.has(causeCode)) return { kind: "transient", confidence: 0.9 };
     if (TRANSIENT_NAMES.has(error.name)) return { kind: "transient", confidence: 0.9 };
     if (VALIDATION_NAMES.has(error.name)) return { kind: "bad_input", confidence: 0.7 };
     return { kind: "fatal", confidence: 0.5 };

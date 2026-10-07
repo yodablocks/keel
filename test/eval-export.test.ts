@@ -50,3 +50,34 @@ test("real failures export to a labelling file that the eval loads back with the
   const verdict = await new RuleClassifier().classify({ error: cases[0]!.error, task: cases[0]!.task, payload: {}, attempt: 1, maxAttempts: 3 });
   assert.equal(verdict.kind, "transient", "the status survives the round trip, so rules see what they saw live");
 });
+
+test("a network code on the error's cause survives export, so rules judge fetch failures as they did live", async (t) => {
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  const worker = engine.createWorker({
+    queue,
+    tasks: {
+      crawl: async (_payload, ctx) => {
+        await ctx.step.run("fetch-page", () => {
+          throw new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
+        });
+      },
+    },
+  });
+  t.after(async () => {
+    await worker.stop();
+    await engine.close();
+  });
+  worker.start();
+  const { id } = await engine.enqueue("crawl", {}, { queue, maxAttempts: 1 });
+  await waitFor(async () => (await engine.getRun(id))?.status === "dead", 5000, "run to go dead");
+
+  const exported = await exportFailures(DATABASE_URL, { queue });
+  assert.equal(exported[0]!.recordedKind, "transient");
+  const dir = await mkdtemp(join(tmpdir(), "keel-eval-"));
+  const file = join(dir, "cases.json");
+  await writeFile(file, JSON.stringify([{ ...exported[0], label: "transient" }]));
+  const { cases } = await loadCases(file);
+  const verdict = await new RuleClassifier().classify({ error: cases[0]!.error, task: cases[0]!.task, payload: {}, attempt: 1, maxAttempts: 3 });
+  assert.equal(verdict.kind, "transient");
+});
