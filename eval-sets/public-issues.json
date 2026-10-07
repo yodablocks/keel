@@ -1,0 +1,852 @@
+[
+  {
+    "id": "P01",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "InvalidGrantError",
+      "message": "Invalid refresh token"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/1760",
+    "reported": "InvalidGrantError: Invalid refresh token"
+  },
+  {
+    "id": "P02",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Package subpath './dist/tools/base' is not defined by \"exports\" in /home/veith/projects/automagically/ts/apps/next-automagically/node_modules/langchain/package.json",
+      "code": "ERR_PACKAGE_PATH_NOT_EXPORTED"
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/2711",
+    "reported": "Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './dist/tools/base' is not defined by \"exports\" in /home/veith/projects/automagically/ts/apps/next-automagically/node_modules/langchain/package.json"
+  },
+  {
+    "id": "P03",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AIUnknownError",
+      "message": "An error has occurred"
+    },
+    "source": "https://github.com/vercel/ai/issues/15481",
+    "reported": "AIUnknownError: An error has occurred"
+  },
+  {
+    "id": "P04",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "McpError",
+      "message": "MCP error -32000: Connection closed"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/1049",
+    "reported": "McpError: MCP error -32000: Connection closed"
+  },
+  {
+    "id": "P05",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "messages.N.content.0: Input tag 'fallback' found using 'type' does not match any of the expected tags: 'bash_code_execution_tool_result', 'code_execution_tool_result', 'connector_text', 'container_upload', 'document', 'image', 'mid_conv_system', 'redacted_thinking', 'search_result', 'server_tool_use', ..."
+    },
+    "source": "https://github.com/vercel/ai/issues/22005",
+    "reported": "AI_APICallError: messages.N.content.0: Input tag 'fallback' found using 'type' does not match any of the expected tags: 'bash_code_execution_tool_result', 'code_execution_tool_result', 'connector_text', 'container_upload', 'document', 'image', 'mid_conv_system', 'redacted_thinking', 'search_result', 'server_tool_use', ..."
+  },
+  {
+    "id": "P06",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "can't resolve reference #/$defs/ResponseModel from id #"
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/9419",
+    "reported": "Error: can't resolve reference #/$defs/ResponseModel from id #"
+  },
+  {
+    "id": "P07",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Cannot find module '/Users/adam/src/maxcare-ai/monorepo/node_modules/@modelcontextprotocol/sdk/dist/cjs/index.js'"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/971",
+    "reported": "Error: Cannot find module '/Users/adam/src/maxcare-ai/monorepo/node_modules/@modelcontextprotocol/sdk/dist/cjs/index.js'"
+  },
+  {
+    "id": "P08",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Unsupported message content type: {\"type\":\"input_text\",\"text\":\"User info (session context): ...\"}"
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/1396",
+    "reported": "Error: Unsupported message content type: {\"type\":\"input_text\",\"text\":\"User info (session context): ...\"}"
+  },
+  {
+    "id": "P09",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "Failed to process successful response"
+    },
+    "source": "https://github.com/vercel/ai/issues/9579",
+    "reported": "AI_APICallError: Failed to process successful response"
+  },
+  {
+    "id": "P10",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_NoSuchToolError",
+      "message": "Model tried to call unavailable tool 'parallel'. Available tools: tool_a, tool_b, tool_c, tool_d, tool_e, tool_f."
+    },
+    "source": "https://github.com/vercel/ai/issues/19067",
+    "reported": "AI_NoSuchToolError: Model tried to call unavailable tool 'parallel'. Available tools: tool_a, tool_b, tool_c, tool_d, tool_e, tool_f."
+  },
+  {
+    "id": "P11",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "The model returned the following errors: output_config.format: Extra inputs are not permitted"
+    },
+    "source": "https://github.com/vercel/ai/issues/19988",
+    "reported": "AI_APICallError: The model returned the following errors: output_config.format: Extra inputs are not permitted"
+  },
+  {
+    "id": "P12",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "TypeError",
+      "message": "fetch failed"
+    },
+    "source": "https://github.com/nodejs/undici/issues/3492",
+    "reported": "TypeError: fetch failed"
+  },
+  {
+    "id": "P13",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "SyntaxError",
+      "message": "JSON Parse error: Unrecognized token '`'"
+    },
+    "source": "https://github.com/vercel/ai/issues/4906",
+    "reported": "SyntaxError: JSON Parse error: Unrecognized token '`'"
+  },
+  {
+    "id": "P14",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Request timed out."
+    },
+    "source": "https://github.com/openai/openai-node/issues/557",
+    "reported": "Error: Request timed out."
+  },
+  {
+    "id": "P15",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "McpError",
+      "message": "MCP error -32602: MCP error -32602: Resource acme://products not found"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/149",
+    "reported": "McpError: MCP error -32602: MCP error -32602: Resource acme://products not found"
+  },
+  {
+    "id": "P16",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "connect ETIMEDOUT 104.18.6.192:443",
+      "code": "ETIMEDOUT"
+    },
+    "source": "https://github.com/openai/openai-node/issues/148",
+    "reported": "Error: connect ETIMEDOUT 104.18.6.192:443"
+  },
+  {
+    "id": "P17",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "Request contains an invalid argument."
+    },
+    "source": "https://github.com/vercel/ai/issues/21192",
+    "reported": "AI_APICallError: Request contains an invalid argument."
+  },
+  {
+    "id": "P18",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "undefined: This model doesn't support the image field for user messages. Remove image and try again."
+    },
+    "source": "https://github.com/vercel/ai/issues/20926",
+    "reported": "AI_APICallError: undefined: This model doesn't support the image field for user messages. Remove image and try again."
+  },
+  {
+    "id": "P19",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "McpError",
+      "message": "MCP error -32001: Request timed out"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/245",
+    "reported": "McpError: MCP error -32001: Request timed out"
+  },
+  {
+    "id": "P20",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "400 No tool output found for function call xxxxxxxx."
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/665",
+    "reported": "Error: 400 No tool output found for function call xxxxxxxx."
+  },
+  {
+    "id": "P21",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "BadRequestError",
+      "message": "400 Item 'rs_686370f3009881929263cb098959e0650e747022c0427999' of type 'reasoning' was provided without its required following item.",
+      "status": 400
+    },
+    "source": "https://github.com/openai/openai-node/issues/1567",
+    "reported": "BadRequestError: 400 Item 'rs_686370f3009881929263cb098959e0650e747022c0427999' of type 'reasoning' was provided without its required following item."
+  },
+  {
+    "id": "P22",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "BadRequestError",
+      "message": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3.content.1.tool_use.input: Input should be a valid dictionary\"}}",
+      "status": 400
+    },
+    "source": "https://github.com/anthropics/anthropic-sdk-typescript/issues/648",
+    "reported": "BadRequestError: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.3.content.1.tool_use.input: Input should be a valid dictionary\"}}"
+  },
+  {
+    "id": "P23",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "McpError",
+      "message": "MCP error -32601: Method not found"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/929",
+    "reported": "McpError: MCP error -32601: Method not found"
+  },
+  {
+    "id": "P24",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "Invalid JSON response"
+    },
+    "source": "https://github.com/vercel/ai/issues/16276",
+    "reported": "AI_APICallError: Invalid JSON response"
+  },
+  {
+    "id": "P25",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "ContentFilterError",
+      "message": "Unable to show generated images. All images were filtered out because they violated Google's Responsible AI practices."
+    },
+    "source": "https://github.com/vercel/ai/issues/10796",
+    "reported": "ContentFilterError: Unable to show generated images. All images were filtered out because they violated Google's Responsible AI practices."
+  },
+  {
+    "id": "P26",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Failed to parse. Text: \"10,0,0,10,0,10,10,0,10,0,10,0,10,0,0\". Error: TypeError: text.trim is not a function"
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/3118",
+    "reported": "Error: Failed to parse. Text: \"10,0,0,10,0,10,10,0,10,0,10,0,10,0,0\". Error: TypeError: text.trim is not a function"
+  },
+  {
+    "id": "P27",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_TypeValidationError",
+      "message": "Type validation failed: Value: {\"type\":\"finish\",\"finishReason\":\"tool-calls\"}."
+    },
+    "source": "https://github.com/vercel/ai/issues/10291",
+    "reported": "AI_TypeValidationError: Type validation failed: Value: {\"type\":\"finish\",\"finishReason\":\"tool-calls\"}."
+  },
+  {
+    "id": "P28",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "UserError",
+      "message": "Sandbox path \"/mnt/shared-data\" must stay within /workspace."
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/1539",
+    "reported": "UserError: Sandbox path \"/mnt/shared-data\" must stay within /workspace."
+  },
+  {
+    "id": "P29",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "Unsupported use of 'seed' parameter. This parameter is not supported for the selected model."
+    },
+    "source": "https://github.com/vercel/ai/issues/15035",
+    "reported": "AI_APICallError: Unsupported use of 'seed' parameter. This parameter is not supported for the selected model."
+  },
+  {
+    "id": "P30",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "SdkHttpError",
+      "message": "Error POSTing to endpoint: {\"jsonrpc\":\"2.0\",\"id\":0,\"error\":{\"code\":-32001,\"message\":\"UCP discovery failed\",\"data\":{\"code\":\"invalid_profile_url\",\"content\":\"Unable to fetch agent profile: Missing profile uri\"}}}"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/2410",
+    "reported": "SdkHttpError: Error POSTing to endpoint: {\"jsonrpc\":\"2.0\",\"id\":0,\"error\":{\"code\":-32001,\"message\":\"UCP discovery failed\",\"data\":{\"code\":\"invalid_profile_url\",\"content\":\"Unable to fetch agent profile: Missing profile uri\"}}}"
+  },
+  {
+    "id": "P31",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "McpError",
+      "message": "MCP error -32603: Date cannot be represented in JSON Schema"
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/2464",
+    "reported": "McpError: MCP error -32603: Date cannot be represented in JSON Schema"
+  },
+  {
+    "id": "P32",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "UserError",
+      "message": "Unsupported AI SDK specificationVersion: v4. Only v2 and v3 are supported."
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/1499",
+    "reported": "UserError: Unsupported AI SDK specificationVersion: v4. Only v2 and v3 are supported."
+  },
+  {
+    "id": "P33",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "read ECONNRESET",
+      "code": "ECONNRESET"
+    },
+    "source": "https://github.com/nodejs/undici/issues/3848",
+    "reported": "Error: read ECONNRESET"
+  },
+  {
+    "id": "P34",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_InvalidPromptError",
+      "message": "Invalid prompt: The messages must be a ModelMessage[]. If you have passed a UIMessage[], you can use convertToModelMessages to convert them."
+    },
+    "source": "https://github.com/vercel/ai/issues/10893",
+    "reported": "AI_InvalidPromptError: Invalid prompt: The messages must be a ModelMessage[]. If you have passed a UIMessage[], you can use convertToModelMessages to convert them."
+  },
+  {
+    "id": "P35",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "ToolCallError",
+      "message": "Failed to run function tools: TypeError: Cannot read properties of null (reading 'length')"
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/1914",
+    "reported": "ToolCallError: Failed to run function tools: TypeError: Cannot read properties of null (reading 'length')"
+  },
+  {
+    "id": "P36",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "TypeError",
+      "message": "Cannot read private member from an object whose class did not declare it at __classPrivateFieldGet"
+    },
+    "source": "https://github.com/openai/openai-node/issues/1590",
+    "reported": "TypeError: Cannot read private member from an object whose class did not declare it at __classPrivateFieldGet"
+  },
+  {
+    "id": "P37",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "NotFoundError",
+      "message": "404 Not found",
+      "status": 404
+    },
+    "source": "https://github.com/openai/openai-node/issues/1691",
+    "reported": "NotFoundError: 404 Not found"
+  },
+  {
+    "id": "P38",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "BadRequestError",
+      "message": "400 Invalid schema for response_format 'event': schema must be a JSON Schema of 'type: \"object\"', got 'type: \"string\"'.",
+      "status": 400
+    },
+    "source": "https://github.com/openai/openai-node/issues/1597",
+    "reported": "BadRequestError: 400 Invalid schema for response_format 'event': schema must be a JSON Schema of 'type: \"object\"', got 'type: \"string\"'."
+  },
+  {
+    "id": "P39",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_InvalidToolArgumentsError",
+      "message": "Invalid arguments for tool sun: JSON parsing failed: Text: {\"query\": \"Where does the user live?\"}{\"query\": \"What color is the sun?\"}."
+    },
+    "source": "https://github.com/vercel/ai/issues/3068",
+    "reported": "AI_InvalidToolArgumentsError: Invalid arguments for tool sun: JSON parsing failed: Text: {\"query\": \"Where does the user live?\"}{\"query\": \"What color is the sun?\"}."
+  },
+  {
+    "id": "P40",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "OutputParserException",
+      "message": "Failed to parse. Text: \"undefined\". Error: TypeError: Cannot read properties of undefined (reading 'trim')"
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/11535",
+    "reported": "OutputParserException: Failed to parse. Text: \"undefined\". Error: TypeError: Cannot read properties of undefined (reading 'trim')"
+  },
+  {
+    "id": "P41",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "SyntaxError",
+      "message": "JSON Parse error: Unexpected identifier \"Shutting\""
+    },
+    "source": "https://github.com/modelcontextprotocol/typescript-sdk/issues/780",
+    "reported": "SyntaxError: JSON Parse error: Unexpected identifier \"Shutting\""
+  },
+  {
+    "id": "P42",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "ConnectTimeoutError",
+      "message": "Connect Timeout Error (attempted address: 10.2.2.164:80, timeout: 10000ms)",
+      "code": "UND_ERR_CONNECT_TIMEOUT"
+    },
+    "source": "https://github.com/nodejs/undici/issues/4215",
+    "reported": "ConnectTimeoutError: Connect Timeout Error (attempted address: 10.2.2.164:80, timeout: 10000ms)"
+  },
+  {
+    "id": "P43",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Connection error."
+    },
+    "source": "https://github.com/openai/openai-node/issues/1758",
+    "reported": "Error: Connection error."
+  },
+  {
+    "id": "P44",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_RetryError",
+      "message": "Failed after 3 attempts. Last error: Cannot read properties of undefined (reading 'input_tokens')"
+    },
+    "source": "https://github.com/vercel/ai/issues/12477",
+    "reported": "AI_RetryError: Failed after 3 attempts. Last error: Cannot read properties of undefined (reading 'input_tokens')"
+  },
+  {
+    "id": "P45",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Failed to parse. Text: \"\"\"\". Error: \"Unexpected end of JSON input\""
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/10907",
+    "reported": "Error: Failed to parse. Text: \"\"\"\". Error: \"Unexpected end of JSON input\""
+  },
+  {
+    "id": "P46",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "SocketError",
+      "message": "other side closed",
+      "code": "UND_ERR_SOCKET"
+    },
+    "source": "https://github.com/nodejs/undici/issues/3897",
+    "reported": "SocketError: other side closed"
+  },
+  {
+    "id": "P47",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "GatewayResponseError",
+      "message": "Invalid error response format: Gateway request failed"
+    },
+    "source": "https://github.com/vercel/ai/issues/9579",
+    "reported": "GatewayResponseError: Invalid error response format: Gateway request failed"
+  },
+  {
+    "id": "P48",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_NoOutputGeneratedError",
+      "message": "No output generated."
+    },
+    "source": "https://github.com/vercel/ai/issues/11466",
+    "reported": "AI_NoOutputGeneratedError: No output generated."
+  },
+  {
+    "id": "P49",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "connect ECONNREFUSED 127.0.0.1:3113",
+      "code": "ECONNREFUSED"
+    },
+    "source": "https://github.com/nodejs/undici/issues/5092",
+    "reported": "Error: connect ECONNREFUSED 127.0.0.1:3113"
+  },
+  {
+    "id": "P50",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "PermissionDeniedError",
+      "message": "403 {\"error\":{\"type\":\"forbidden\",\"message\":\"Request not allowed\"}}",
+      "status": 403
+    },
+    "source": "https://github.com/anthropics/anthropic-sdk-typescript/issues/457",
+    "reported": "PermissionDeniedError: 403 {\"error\":{\"type\":\"forbidden\",\"message\":\"Request not allowed\"}}"
+  },
+  {
+    "id": "P51",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_TypeValidationError",
+      "message": "Type validation failed: Value: {\"type\":\"error\",\"error\":\"{\\\"message\\\":\\\"The system encountered an unexpected error during processing. Try your request again.\\\"}\"}."
+    },
+    "source": "https://github.com/vercel/ai/issues/17124",
+    "reported": "AI_TypeValidationError: Type validation failed: Value: {\"type\":\"error\",\"error\":\"{\\\"message\\\":\\\"The system encountered an unexpected error during processing. Try your request again.\\\"}\"}."
+  },
+  {
+    "id": "P52",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_JSONParseError",
+      "message": "JSON parsing failed: Text: ."
+    },
+    "source": "https://github.com/vercel/ai/issues/2103",
+    "reported": "AI_JSONParseError: JSON parsing failed: Text: ."
+  },
+  {
+    "id": "P53",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "TypeError",
+      "message": "Invalid state: ReadableStream is locked"
+    },
+    "source": "https://github.com/vercel/ai/issues/9579",
+    "reported": "TypeError: Invalid state: ReadableStream is locked"
+  },
+  {
+    "id": "P54",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "ModelBehaviorError",
+      "message": "Invalid JSON provided"
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/1731",
+    "reported": "ModelBehaviorError: Invalid JSON provided"
+  },
+  {
+    "id": "P55",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Received tool input did not match expected schema"
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/6374",
+    "reported": "Error: Received tool input did not match expected schema"
+  },
+  {
+    "id": "P56",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "No such object: my-bucket/folder/My%20File.pdf"
+    },
+    "source": "https://github.com/vercel/ai/issues/21265",
+    "reported": "AI_APICallError: No such object: my-bucket/folder/My%20File.pdf"
+  },
+  {
+    "id": "P57",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "TypeError",
+      "message": "Cannot read properties of undefined (reading 'timeoutType')"
+    },
+    "source": "https://github.com/nodejs/undici/issues/1634",
+    "reported": "TypeError: Cannot read properties of undefined (reading 'timeoutType')"
+  },
+  {
+    "id": "P58",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "APIConnectionError",
+      "message": "Connection error."
+    },
+    "source": "https://github.com/openai/openai-node/issues/1886",
+    "reported": "APIConnectionError: Connection error."
+  },
+  {
+    "id": "P59",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "SyntaxError",
+      "message": "Unexpected end of JSON input"
+    },
+    "source": "https://github.com/openai/openai-node/issues/1739",
+    "reported": "SyntaxError: Unexpected end of JSON input"
+  },
+  {
+    "id": "P60",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_NoObjectGeneratedError",
+      "message": "No object generated: could not parse the response."
+    },
+    "source": "https://github.com/vercel/ai/issues/14377",
+    "reported": "AI_NoObjectGeneratedError: No object generated: could not parse the response."
+  },
+  {
+    "id": "P61",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "TypeError",
+      "message": "body used already for: https://api.openai.com/v1/chat/completions"
+    },
+    "source": "https://github.com/openai/openai-node/issues/1102",
+    "reported": "TypeError: body used already for: https://api.openai.com/v1/chat/completions"
+  },
+  {
+    "id": "P62",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "ModelBehaviorError",
+      "message": "Model produced deferred function call syntax.lookup_syntax_tree before it was loaded via tool_search."
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/1855",
+    "reported": "ModelBehaviorError: Model produced deferred function call syntax.lookup_syntax_tree before it was loaded via tool_search."
+  },
+  {
+    "id": "P63",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "UnprocessableEntityError",
+      "message": "422 Failed to deserialize the JSON body into the target type: tools[0]: missing field `sources` at line 1 column 65",
+      "status": 422
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/9917",
+    "reported": "UnprocessableEntityError: 422 Failed to deserialize the JSON body into the target type: tools[0]: missing field `sources` at line 1 column 65"
+  },
+  {
+    "id": "P64",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_TypeValidationError",
+      "message": "Type validation failed: Value: {}."
+    },
+    "source": "https://github.com/vercel/ai/issues/9579",
+    "reported": "AI_TypeValidationError: Type validation failed: Value: {}."
+  },
+  {
+    "id": "P65",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Error: Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable."
+    },
+    "source": "https://github.com/openai/openai-node/issues/1957",
+    "reported": "Error: Error: Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable."
+  },
+  {
+    "id": "P66",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "MCPClientError",
+      "message": "Failed to connect to streamable HTTP server \"server-xxx, url: http://127.0.0.1:8090/tools/mcp\":"
+    },
+    "source": "https://github.com/langchain-ai/langchainjs/issues/9419",
+    "reported": "MCPClientError: Failed to connect to streamable HTTP server \"server-xxx, url: http://127.0.0.1:8090/tools/mcp\":"
+  },
+  {
+    "id": "P67",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "connect ETIMEDOUT ::1:3113",
+      "code": "ETIMEDOUT"
+    },
+    "source": "https://github.com/nodejs/undici/issues/5092",
+    "reported": "Error: connect ETIMEDOUT ::1:3113"
+  },
+  {
+    "id": "P68",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "TypeError",
+      "message": "undefined is not an object (evaluating 'req.headers')"
+    },
+    "source": "https://github.com/anthropics/anthropic-sdk-typescript/issues/807",
+    "reported": "TypeError: undefined is not an object (evaluating 'req.headers')"
+  },
+  {
+    "id": "P69",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "FetchError",
+      "message": "request to https://jsonplaceholder.typicode.com/todos/1 failed, reason: getaddrinfo EAI_AGAIN jsonplaceholder.typicode.com",
+      "code": "EAI_AGAIN"
+    },
+    "source": "https://github.com/nodejs/undici/issues/2362",
+    "reported": "FetchError: request to https://jsonplaceholder.typicode.com/todos/1 failed, reason: getaddrinfo EAI_AGAIN jsonplaceholder.typicode.com"
+  },
+  {
+    "id": "P70",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_APICallError",
+      "message": "messages.1: `tool_use` ids were found without `tool_result` blocks immediately after: tool-example-123. Each `tool_use` block must have a corresponding `tool_result` block in the next message."
+    },
+    "source": "https://github.com/vercel/ai/issues/8516",
+    "reported": "AI_APICallError: messages.1: `tool_use` ids were found without `tool_result` blocks immediately after: tool-example-123. Each `tool_use` block must have a corresponding `tool_result` block in the next message."
+  },
+  {
+    "id": "P71",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_NoObjectGeneratedError",
+      "message": "No object generated: response did not match schema."
+    },
+    "source": "https://github.com/vercel/ai/issues/16662",
+    "reported": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  {
+    "id": "P72",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AnthropicError",
+      "message": "request ended without sending any chunks"
+    },
+    "source": "https://github.com/anthropics/anthropic-sdk-typescript/issues/1199",
+    "reported": "AnthropicError: request ended without sending any chunks"
+  },
+  {
+    "id": "P73",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_InvalidToolArgumentsError",
+      "message": "Invalid arguments for tool food: Type validation failed: Value: {\"food\":\"milk\"}."
+    },
+    "source": "https://github.com/vercel/ai/issues/2683",
+    "reported": "AI_InvalidToolArgumentsError: Invalid arguments for tool food: Type validation failed: Value: {\"food\":\"milk\"}."
+  },
+  {
+    "id": "P74",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "Error",
+      "message": "Premature close"
+    },
+    "source": "https://github.com/openai/openai-node/issues/419",
+    "reported": "Error: Premature close"
+  },
+  {
+    "id": "P75",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "ModelBehaviorError",
+      "message": "Model produced deferred MCP call <example_server> before it was loaded via tool_search."
+    },
+    "source": "https://github.com/openai/openai-agents-js/issues/1978",
+    "reported": "ModelBehaviorError: Model produced deferred MCP call <example_server> before it was loaded via tool_search."
+  },
+  {
+    "id": "P76",
+    "label": null,
+    "task": "agent",
+    "error": {
+      "name": "AI_TypeValidationError",
+      "message": "Type validation failed for messages[7].parts[11].input (create_artifact, id: \"toolu_...\"): Value: {}."
+    },
+    "source": "https://github.com/vercel/ai/issues/18425",
+    "reported": "AI_TypeValidationError: Type validation failed for messages[7].parts[11].input (create_artifact, id: \"toolu_...\"): Value: {}."
+  }
+]
