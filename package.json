@@ -40,10 +40,10 @@
     "bench": "node --env-file-if-exists=.env scripts/bench.ts"
   },
   "dependencies": {
-    "pg": "^8.23.0"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",
     "@typesafe-ai/sdk": "^0.6.0",
     "typescript": "^7.0.2"
