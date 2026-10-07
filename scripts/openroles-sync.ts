@@ -1,5 +1,5 @@
-// A real workload on keel: reads every confirmed job board from openroles (github.com/yodablocks/openroles),
-// one run per board, against the live Ashby, Greenhouse and Lever APIs. The openroles database is opened
+// A real workload on keel: reads every confirmed job board from openroles, the maintainer's own job search tool
+// (not published; its database defaults to ~/Coding_2026/openroles), one run per board, against the live Ashby, Greenhouse and Lever APIs. The openroles database is opened
 // read-only; nothing is written back. Failures are the raw errors from fetch and JSON.parse, not keel's
 // error classes, so the classifier sees what real failures look like.
 // Uses Jev when TYPESAFE_API_KEY is set, rules otherwise (or with --offline).
