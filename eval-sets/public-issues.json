@@ -1,7 +1,7 @@
 [
   {
     "id": "P01",
-    "label": null,
+    "label": "needs_human",
     "task": "agent",
     "error": {
       "name": "InvalidGrantError",
@@ -12,7 +12,7 @@
   },
   {
     "id": "P02",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -35,7 +35,7 @@
   },
   {
     "id": "P04",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "McpError",
@@ -46,7 +46,7 @@
   },
   {
     "id": "P05",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -57,7 +57,7 @@
   },
   {
     "id": "P06",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -68,7 +68,7 @@
   },
   {
     "id": "P07",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -79,7 +79,7 @@
   },
   {
     "id": "P08",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -90,7 +90,7 @@
   },
   {
     "id": "P09",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -101,7 +101,7 @@
   },
   {
     "id": "P10",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_NoSuchToolError",
@@ -112,7 +112,7 @@
   },
   {
     "id": "P11",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -123,7 +123,7 @@
   },
   {
     "id": "P12",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "TypeError",
@@ -134,7 +134,7 @@
   },
   {
     "id": "P13",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "SyntaxError",
@@ -145,7 +145,7 @@
   },
   {
     "id": "P14",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -156,7 +156,7 @@
   },
   {
     "id": "P15",
-    "label": null,
+    "label": "bad_input",
     "task": "agent",
     "error": {
       "name": "McpError",
@@ -167,7 +167,7 @@
   },
   {
     "id": "P16",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -179,7 +179,7 @@
   },
   {
     "id": "P17",
-    "label": null,
+    "label": "bad_input",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -190,7 +190,7 @@
   },
   {
     "id": "P18",
-    "label": null,
+    "label": "bad_input",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -201,7 +201,7 @@
   },
   {
     "id": "P19",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "McpError",
@@ -212,7 +212,7 @@
   },
   {
     "id": "P20",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -223,7 +223,7 @@
   },
   {
     "id": "P21",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "BadRequestError",
@@ -235,7 +235,7 @@
   },
   {
     "id": "P22",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "BadRequestError",
@@ -247,7 +247,7 @@
   },
   {
     "id": "P23",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "McpError",
@@ -258,7 +258,7 @@
   },
   {
     "id": "P24",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -269,7 +269,7 @@
   },
   {
     "id": "P25",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "ContentFilterError",
@@ -280,7 +280,7 @@
   },
   {
     "id": "P26",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -291,7 +291,7 @@
   },
   {
     "id": "P27",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "AI_TypeValidationError",
@@ -302,7 +302,7 @@
   },
   {
     "id": "P28",
-    "label": null,
+    "label": "bad_input",
     "task": "agent",
     "error": {
       "name": "UserError",
@@ -313,7 +313,7 @@
   },
   {
     "id": "P29",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -324,7 +324,7 @@
   },
   {
     "id": "P30",
-    "label": null,
+    "label": "bad_input",
     "task": "agent",
     "error": {
       "name": "SdkHttpError",
@@ -335,7 +335,7 @@
   },
   {
     "id": "P31",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "McpError",
@@ -346,7 +346,7 @@
   },
   {
     "id": "P32",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "UserError",
@@ -357,7 +357,7 @@
   },
   {
     "id": "P33",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -369,7 +369,7 @@
   },
   {
     "id": "P34",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "AI_InvalidPromptError",
@@ -380,7 +380,7 @@
   },
   {
     "id": "P35",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "ToolCallError",
@@ -391,7 +391,7 @@
   },
   {
     "id": "P36",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "TypeError",
@@ -402,7 +402,7 @@
   },
   {
     "id": "P37",
-    "label": null,
+    "label": "bad_input",
     "task": "agent",
     "error": {
       "name": "NotFoundError",
@@ -414,7 +414,7 @@
   },
   {
     "id": "P38",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "BadRequestError",
@@ -426,7 +426,7 @@
   },
   {
     "id": "P39",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_InvalidToolArgumentsError",
@@ -437,7 +437,7 @@
   },
   {
     "id": "P40",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "OutputParserException",
@@ -448,7 +448,7 @@
   },
   {
     "id": "P41",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "SyntaxError",
@@ -459,7 +459,7 @@
   },
   {
     "id": "P42",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "ConnectTimeoutError",
@@ -471,7 +471,7 @@
   },
   {
     "id": "P43",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -482,7 +482,7 @@
   },
   {
     "id": "P44",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "AI_RetryError",
@@ -493,7 +493,7 @@
   },
   {
     "id": "P45",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -504,7 +504,7 @@
   },
   {
     "id": "P46",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "SocketError",
@@ -516,7 +516,7 @@
   },
   {
     "id": "P47",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "GatewayResponseError",
@@ -527,7 +527,7 @@
   },
   {
     "id": "P48",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_NoOutputGeneratedError",
@@ -538,7 +538,7 @@
   },
   {
     "id": "P49",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -550,7 +550,7 @@
   },
   {
     "id": "P50",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "PermissionDeniedError",
@@ -562,7 +562,7 @@
   },
   {
     "id": "P51",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "AI_TypeValidationError",
@@ -573,7 +573,7 @@
   },
   {
     "id": "P52",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_JSONParseError",
@@ -584,7 +584,7 @@
   },
   {
     "id": "P53",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "TypeError",
@@ -595,7 +595,7 @@
   },
   {
     "id": "P54",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "ModelBehaviorError",
@@ -606,7 +606,7 @@
   },
   {
     "id": "P55",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -617,7 +617,7 @@
   },
   {
     "id": "P56",
-    "label": null,
+    "label": "bad_input",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -628,7 +628,7 @@
   },
   {
     "id": "P57",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "TypeError",
@@ -639,7 +639,7 @@
   },
   {
     "id": "P58",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "APIConnectionError",
@@ -650,7 +650,7 @@
   },
   {
     "id": "P59",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "SyntaxError",
@@ -661,7 +661,7 @@
   },
   {
     "id": "P60",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_NoObjectGeneratedError",
@@ -672,7 +672,7 @@
   },
   {
     "id": "P61",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "TypeError",
@@ -683,7 +683,7 @@
   },
   {
     "id": "P62",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "ModelBehaviorError",
@@ -694,7 +694,7 @@
   },
   {
     "id": "P63",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "UnprocessableEntityError",
@@ -706,7 +706,7 @@
   },
   {
     "id": "P64",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "AI_TypeValidationError",
@@ -717,7 +717,7 @@
   },
   {
     "id": "P65",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -728,7 +728,7 @@
   },
   {
     "id": "P66",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "MCPClientError",
@@ -739,7 +739,7 @@
   },
   {
     "id": "P67",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -751,7 +751,7 @@
   },
   {
     "id": "P68",
-    "label": null,
+    "label": "fatal",
     "task": "agent",
     "error": {
       "name": "TypeError",
@@ -762,7 +762,7 @@
   },
   {
     "id": "P69",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "FetchError",
@@ -774,7 +774,7 @@
   },
   {
     "id": "P70",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_APICallError",
@@ -785,7 +785,7 @@
   },
   {
     "id": "P71",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_NoObjectGeneratedError",
@@ -796,7 +796,7 @@
   },
   {
     "id": "P72",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "AnthropicError",
@@ -807,7 +807,7 @@
   },
   {
     "id": "P73",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_InvalidToolArgumentsError",
@@ -818,7 +818,7 @@
   },
   {
     "id": "P74",
-    "label": null,
+    "label": "transient",
     "task": "agent",
     "error": {
       "name": "Error",
@@ -829,7 +829,7 @@
   },
   {
     "id": "P75",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "ModelBehaviorError",
@@ -840,7 +840,7 @@
   },
   {
     "id": "P76",
-    "label": null,
+    "label": "bad_output",
     "task": "agent",
     "error": {
       "name": "AI_TypeValidationError",
