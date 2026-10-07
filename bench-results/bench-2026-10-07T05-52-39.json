@@ -1,0 +1,50 @@
+{
+  "environment": {
+    "cpu": "Apple M4",
+    "cores": 10,
+    "memoryGb": 32,
+    "platform": "darwin 27.0.0",
+    "node": "v26.10.0",
+    "postgres": "17.11 (Debian 17.11-1.pgdg13+2)",
+    "note": "Postgres 17 in Docker on the same machine; all workers in one Node process; default 50ms polling"
+  },
+  "runsPerConfiguration": 2000,
+  "throughput": [
+    {
+      "workers": 1,
+      "runsPerSecond": 278,
+      "seconds": 7.19
+    },
+    {
+      "workers": 2,
+      "runsPerSecond": 576,
+      "seconds": 3.47
+    },
+    {
+      "workers": 4,
+      "runsPerSecond": 906,
+      "seconds": 2.21
+    },
+    {
+      "workers": 8,
+      "runsPerSecond": 1471,
+      "seconds": 1.36
+    },
+    {
+      "workers": 16,
+      "runsPerSecond": 1320,
+      "seconds": 1.52
+    },
+    {
+      "workers": 32,
+      "runsPerSecond": 1408,
+      "seconds": 1.42
+    }
+  ],
+  "latency": {
+    "samples": 200,
+    "p50ms": 27,
+    "p99ms": 53,
+    "maxMs": 63
+  }
+}
