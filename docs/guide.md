@@ -240,6 +240,23 @@ await engine.resolveApproval(runId, "refund-ok", { approved: true, by: "alice", 
 
 **Escalation:** when the failure policy escalates (by default `NeedsHumanError` and `OverBudgetError`), the run waits for a person the same way, as an approval named `escalation-<attempt>`. Approving retries it once more, even past `maxAttempts`, with the reviewer's comment as `ctx.hint`. Rejecting it, or no answer within `escalationTimeoutMs` (default 24 hours), fails the run.
 
+## Retrying a failed run
+
+A run that failed or went dead can be put back on its queue, for example when the classifier stopped it wrongly or
+its cause has been fixed:
+
+```ts
+await engine.retryRun(runId); // { retried: true }
+await engine.retryRun(runId, { attempts: 5, hint: "API key rotated" });
+```
+
+- The run keeps its id, so its completed steps replay from storage instead of running again, and each step's
+  idempotency key is the same as before: a step that charged a card before the failure isn't charged again.
+- It gets `attempts` more attempts (default 3), and `hint`, if given, reaches the handler as `ctx.hint`.
+- Its error history is kept. `retried` is false if the run doesn't exist or isn't `failed` or `dead`, and two
+  calls at once retry it only once.
+- The dashboard shows a Retry form, with an optional hint, on failed and dead runs.
+
 ## Control-flow errors
 
 `ctx.step.run` and `ctx.wait.*` can throw two errors that are signals to the engine, not failures:
@@ -311,8 +328,8 @@ await engine.listPendingApprovals({ queue: "agents" }); // filters are optional
 `pnpm dashboard [--port 4400] [--host 127.0.0.1]` serves the same data as HTML:
 
 - **Runs:** counts by status, pending approvals (newest first, scoped to the current filters), and a filterable run list. Refreshes every 5 seconds.
-- **Run logbook:** steps, failures (kind, confidence, action, step, status, output) and waits in time order, plus payload and result. A pending approval or escalation shows an Approve/Reject form; the page stops refreshing while a form is open.
-- **Security:** no login, so keep it on loopback. There is no JavaScript (the Content Security Policy forbids scripts), every value is HTML-escaped by a template that escapes by default, decisions need a per-process form token and a same-origin request, and on loopback requests for other hostnames are refused (DNS rebinding). Binding to another host prints a warning.
+- **Run logbook:** steps, failures (kind, confidence, action, step, status, output) and waits in time order, plus payload and result. A pending approval or escalation shows an Approve/Reject form, and a failed or dead run a Retry form; the page stops refreshing while a form is open.
+- **Security:** no login, so keep it on loopback. There is no JavaScript (the Content Security Policy forbids scripts), every value is HTML-escaped by a template that escapes by default, decisions and retries need a per-process form token and a same-origin request, and on loopback requests for other hostnames are refused (DNS rebinding). Binding to another host prints a warning.
 
 To embed it in your own process: `const dashboard = await startDashboard({ engine, port: 4400 })`, then `dashboard.close()`.
 

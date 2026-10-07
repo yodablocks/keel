@@ -18,7 +18,7 @@ Each cost is in units of one wasted retry, judged from what keel does today:
 |---|---|---|
 | Wasted attempts | 1 | A wrongly retried run uses up its remaining attempts (2 more by default, `maxAttempts` 3) and then fails anyway. Compute and model calls, nothing else. |
 | Person's time | 2 | A wrong escalation parks the run until someone reads it and decides. Minutes of a person, worth more than a couple of automated attempts. |
-| Lost run | 5 | A wrongly failed run stops for good: keel cannot resume a failed run, so the work done so far is lost, and someone has to notice and start it again. |
+| Lost run | 5 | A wrongly failed run stops for good: keel could not resume a failed run when this was written (see below), so the work done so far is lost, and someone has to notice and start it again. |
 | Acted without approval | 20 | A case that needed a person was retried instead, so the agent may go ahead with what should have waited, such as a refund over a limit. Possibly irreversible. |
 
 ## Matrix
@@ -46,6 +46,13 @@ Rows are the right action (from the label), columns the action keel took (from t
 - **The 20 assumes the classifier is the last guard.** Often it isn't: a check that raised "needs approval" will
   usually raise it again on retry, and an explicit `NeedsHumanError` skips the classifier entirely. The cost is
   for the case where it is the last guard.
+
+## Later change to keel
+
+After this table was committed, keel gained `engine.retryRun`: a person can retry a failed run, and it resumes after
+its completed steps. A wrong `fail` is still a lost run until someone notices it, so the cost stays at 5, unchanged
+before any set was scored with it. The sensitivity column at 2 covers the case where failures are reviewed and
+retried quickly.
 
 ## Sensitivity
 

@@ -13,6 +13,7 @@
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
 | 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging | Done |
 | October 2026 refresh | Node 24 and 26 in CI, dependency updates, a real workload (`openroles:sync`), held-out classifier evals from public issues (75 cases, then 60 fresh ones), `fetch` cause codes in rules, bench rerun | Done |
+| After the post | A cost table for classifier mistakes (`eval-sets/COSTS.md`, `pnpm eval:cost`), and `engine.retryRun` with a dashboard Retry form, so a wrongly failed run can be resumed instead of lost | Done |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 

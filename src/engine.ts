@@ -273,6 +273,13 @@ export interface WorkerOptions {
   retention?: { keepMs: number; everyMs?: number };
 }
 
+export interface RetryRunOptions {
+  /** Further attempts the run gets. Defaults to 3, like enqueue. */
+  attempts?: number;
+  /** Passed to the handler as ctx.hint on the next attempt, for example what a person fixed. */
+  hint?: string;
+}
+
 export interface PurgeOptions {
   /** Runs that finished (completed, failed or dead) before this moment are deleted. */
   olderThan: Date;
@@ -349,6 +356,12 @@ export interface Engine {
   listPendingApprovals(filter?: Omit<RunFilter, "status">): Promise<Approval[]>;
   /** Records a reviewer's decision and resumes the run. resolved is false if it was already decided or timed out. */
   resolveApproval(runId: string, name: string, decision: ApprovalDecision): Promise<{ resolved: boolean }>;
+  /**
+   * Requeues a failed or dead run, for when it was stopped wrongly or its cause has been fixed. The run keeps its
+   * id, so completed steps replay from storage and step idempotency keys stay the same; its error history is kept.
+   * retried is false if the run doesn't exist or isn't failed or dead.
+   */
+  retryRun(runId: string, options?: RetryRunOptions): Promise<{ retried: boolean }>;
   /** Resolves every open forEvent wait on eventName. Returns how many waits it resolved. */
   sendEvent(eventName: string, payload?: unknown): Promise<{ resolved: number }>;
   /**
@@ -527,6 +540,18 @@ export function createEngine(options: EngineOptions): Engine {
 
     purge(purgeOptions) {
       return purgeRuns(pool, purgeOptions);
+    },
+
+    async retryRun(runId, retryOptions = {}) {
+      const attempts = retryOptions.attempts ?? 3;
+      if (!Number.isInteger(attempts) || attempts < 1) throw new Error(`retryRun: attempts must be a whole number of at least 1, got ${attempts}`);
+      // One conditional update, so concurrent calls retry the run once and a run that isn't finished is untouched.
+      const { rowCount } = await pool.query(
+        `UPDATE runs SET status = 'queued', max_attempts = attempt + $2, hint = $3, run_after = now(), updated_at = now()
+         WHERE id = $1 AND status IN ('failed', 'dead')`,
+        [runId, attempts, retryOptions.hint ?? null],
+      );
+      return { retried: rowCount === 1 };
     },
 
     async sendEvent(eventName, payload) {

@@ -31,10 +31,10 @@ keel works out *why* a step failed and acts on it. It treats tokens and dollars 
 | **Failure classification** | Every failure is classified as `transient`, `bad_input`, `bad_output`, `needs_human`, `over_budget` or `fatal`, and a policy picks the action: back off, retry with a corrective hint, fall back to a cheaper model, fail, or escalate. |
 | **Jev classifier** | An optional classifier that reads error *messages*, the failing step and the rejected model output, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model, with a rule-based fallback. |
 | **Budgets** | Per-run budgets stop a run before its next step, and can fall back to a cheaper model instead of stopping. Tenant and per-task daily budgets defer runs instead of failing them. |
-| **Human in the loop** | Approvals inside workflows, and escalated failures that wait for a reviewer's decision. |
+| **Human in the loop** | Approvals inside workflows, and escalated failures that wait for a reviewer's decision. A run that failed wrongly can be retried by hand (`engine.retryRun`) and resumes after its completed steps. |
 | **Safe side effects** | Each step gets a stable idempotency key, so a step re-run after a crash can't charge a card twice. |
 | **Waits and events** | Durable sleeps and waits for external events that free the worker in the meantime. |
-| **Dashboard** | `pnpm dashboard`: a run list, a logbook of each run (steps, costs, errors, decisions), and Approve/Reject for pending approvals. No dependencies, no JavaScript. |
+| **Dashboard** | `pnpm dashboard`: a run list, a logbook of each run (steps, costs, errors, decisions), Approve/Reject for pending approvals, and Retry for failed runs. No dependencies, no JavaScript. |
 | **Serverless mode** | `worker.runOnce({ deadlineMs })` works through due runs and returns, for cron jobs and serverless functions. A run cut off by the deadline resumes from its last stored step on the next call. |
 | **Crash safety** | Postgres `SKIP LOCKED` claims, leases with heartbeats, fenced writes, and dead-lettering of runs that keep crashing their workers. |
 

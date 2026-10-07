@@ -1,4 +1,4 @@
-// A small operator dashboard: run list, run logbook, and approve/reject for pending approvals.
+// A small operator dashboard: run list, run logbook, approve/reject for pending approvals, and retrying failed runs.
 // No dependencies and no JavaScript: server-rendered HTML with plain forms, served by node:http.
 // Meant for local or internal use. It has no login, so never expose it publicly.
 import { createServer } from "node:http";
@@ -56,18 +56,28 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       return pageHtml ? send(res, 200, pageHtml) : send(res, 404, page("Not found", html`<p class="empty">No run with that id.</p>`));
     }
     if (req.method === "POST" && url.pathname === "/approvals") return decide(req, res);
+    if (req.method === "POST" && url.pathname === "/retries") return retry(req, res);
     return send(res, 404, page("Not found", html`<p class="empty">Nothing here.</p>`));
   }
 
-  async function decide(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // The form, if it came from one of this dashboard's own pages; otherwise answers 403 and returns undefined.
+  async function trustedForm(req: IncomingMessage, res: ServerResponse): Promise<URLSearchParams | undefined> {
     const origin = req.headers.origin;
     if (origin !== undefined && origin !== `http://${req.headers.host}`) {
-      return send(res, 403, page("Forbidden", html`<p class="empty">Cross-site form submission refused.</p>`));
+      send(res, 403, page("Forbidden", html`<p class="empty">Cross-site form submission refused.</p>`));
+      return undefined;
     }
     const form = await readForm(req);
     if (!form || !sameToken(form.get("csrf") ?? "", csrfToken)) {
-      return send(res, 403, page("Forbidden", html`<p class="empty">Missing or invalid form token. Reload the page and try again.</p>`));
+      send(res, 403, page("Forbidden", html`<p class="empty">Missing or invalid form token. Reload the page and try again.</p>`));
+      return undefined;
     }
+    return form;
+  }
+
+  async function decide(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const form = await trustedForm(req, res);
+    if (!form) return;
     const runId = form.get("runId") ?? "";
     const name = form.get("name") ?? "";
     const decision = form.get("decision");
@@ -83,6 +93,17 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
     });
     const flash = resolved ? (decision === "approve" ? "approved" : "rejected") : "already-decided";
     res.writeHead(303, { Location: `/runs/${runId}?flash=${flash}` });
+    res.end();
+  }
+
+  async function retry(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const form = await trustedForm(req, res);
+    if (!form) return;
+    const runId = form.get("runId") ?? "";
+    if (!/^[0-9a-f-]{36}$/.test(runId)) return send(res, 400, page("Bad request", html`<p class="empty">Incomplete retry.</p>`));
+    const hint = form.get("hint")?.trim();
+    const { retried } = await engine.retryRun(runId, hint ? { hint } : {});
+    res.writeHead(303, { Location: `/runs/${runId}?flash=${retried ? "retried" : "not-retryable"}` });
     res.end();
   }
 
@@ -171,6 +192,7 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
       </dl>
 
       ${pending.map((w) => decisionForm(run, w, csrfToken))}
+      ${run.status === "failed" || run.status === "dead" ? retryForm(run, csrfToken) : ""}
 
       <div class="columns">
         <section aria-labelledby="log-h">
@@ -250,6 +272,21 @@ function decisionForm(run: Run, w: WaitRecord, csrf: string): Html {
       <div class="buttons">
         <button type="submit" name="decision" value="approve" class="approve">Approve</button>
         <button type="submit" name="decision" value="reject" class="reject">Reject</button>
+      </div>
+    </form>
+  </section>`;
+}
+
+function retryForm(run: Run, csrf: string): Html {
+  return html`<section class="decision" aria-labelledby="retry-h">
+    <h2 id="retry-h">Retry this run</h2>
+    <p class="dim">If it was stopped wrongly or the cause is fixed: the run resumes after its completed steps, which are not run again, with 3 more attempts.</p>
+    <form method="post" action="/retries">
+      <input type="hidden" name="csrf" value="${csrf}">
+      <input type="hidden" name="runId" value="${run.id}">
+      <label class="wide">Hint <textarea name="hint" rows="2" maxlength="2000" placeholder="Optional: what changed, passed to the handler as ctx.hint"></textarea></label>
+      <div class="buttons">
+        <button type="submit" class="approve">Retry</button>
       </div>
     </form>
   </section>`;
@@ -363,6 +400,8 @@ function actionText(a: RunError["action"]): string {
 function flashText(flash: string): string {
   if (flash === "approved") return "Approved. The run will resume shortly.";
   if (flash === "rejected") return "Rejected.";
+  if (flash === "retried") return "Retried. The run will resume shortly.";
+  if (flash === "not-retryable") return "Only a failed or dead run can be retried.";
   return "This request was already decided or has timed out.";
 }
 
