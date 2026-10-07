@@ -38,7 +38,8 @@
     "build": "tsc -p tsconfig.build.json",
     "prepack": "pnpm build",
     "bench": "node --env-file-if-exists=.env scripts/bench.ts",
-    "openroles:sync": "node --env-file-if-exists=.env scripts/openroles-sync.ts"
+    "openroles:sync": "node --env-file-if-exists=.env scripts/openroles-sync.ts",
+    "eval:label": "node scripts/eval-label.ts"
   },
   "dependencies": {
     "pg": "^8.23.1"
