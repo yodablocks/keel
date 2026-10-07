@@ -9,6 +9,7 @@ import { JevClassifier, RuleClassifier } from "../src/index.ts";
 import type { FailureContext, FailureKind, SystemOneClient } from "../src/index.ts";
 import { FAILURE_CASES } from "./failure-cases.ts";
 import { loadCases } from "./eval-cases.ts";
+import { printCostReport } from "./eval-costs.ts";
 import type { FailureCase } from "./eval-cases.ts";
 
 const { values } = parseArgs({ options: { cases: { type: "string" } } });
@@ -47,6 +48,7 @@ const recording: SystemOneClient = {
 };
 
 const MIN_CONFIDENCE = 0.5;
+const KINDS = new Set(["transient", "bad_input", "bad_output", "needs_human", "fatal"]);
 const rules = new RuleClassifier();
 const cascade = new JevClassifier({ client: recording, minConfidence: MIN_CONFIDENCE });
 
@@ -54,6 +56,9 @@ interface Variant {
   jev: string | null;
   jevConfidence: number | null;
   cascade: FailureKind;
+  /** The no-signal fallback change (PR #25, eval-sets/COSTS.md), from the same Jev answer: an unsure Jev answer is
+   * kept when the rules found no signal, instead of the rules' default. Not shipped; scored for the next fresh set. */
+  cascadeChange: FailureKind;
 }
 
 async function run(ctx: FailureContext): Promise<Variant> {
@@ -61,7 +66,15 @@ async function run(ctx: FailureContext): Promise<Variant> {
   const verdict = await cascade.classify(ctx);
   // Set by the recording client during classify; TypeScript cannot see that assignment.
   const answer = lastAnswer as { choice?: string; confidence?: number } | undefined;
-  return { jev: answer?.choice ?? null, jevConfidence: answer?.confidence ?? null, cascade: verdict.kind };
+  const byRules = await rules.classify(ctx);
+  const valid = typeof answer?.choice === "string" && KINDS.has(answer.choice) && byRules.confidence < 1;
+  const keepJev = valid && ((answer!.confidence ?? 0) >= MIN_CONFIDENCE || byRules.confidence <= 0.5);
+  return {
+    jev: answer?.choice ?? null,
+    jevConfidence: answer?.confidence ?? null,
+    cascade: verdict.kind,
+    cascadeChange: keepJev ? (answer!.choice as FailureKind) : byRules.kind,
+  };
 }
 
 interface Row {
@@ -100,8 +113,18 @@ const summary = {
   source,
   cases: n,
   rules: correct((r) => r.rules),
-  withoutContext: { jevRaw: correct((r) => r.withoutContext.jev), cascade: correct((r) => r.withoutContext.cascade), belowThreshold: below((r) => r.withoutContext.jevConfidence) },
-  withContext: { jevRaw: correct((r) => r.withContext.jev), cascade: correct((r) => r.withContext.cascade), belowThreshold: below((r) => r.withContext.jevConfidence) },
+  withoutContext: {
+    jevRaw: correct((r) => r.withoutContext.jev),
+    cascade: correct((r) => r.withoutContext.cascade),
+    cascadeChange: correct((r) => r.withoutContext.cascadeChange),
+    belowThreshold: below((r) => r.withoutContext.jevConfidence),
+  },
+  withContext: {
+    jevRaw: correct((r) => r.withContext.jev),
+    cascade: correct((r) => r.withContext.cascade),
+    cascadeChange: correct((r) => r.withContext.cascadeChange),
+    belowThreshold: below((r) => r.withContext.jevConfidence),
+  },
   jevCalls: calls,
   models: [...models],
   tokens: { input: inputTokens, output: outputTokens },
@@ -114,6 +137,20 @@ console.log(`Jev raw, without step context:  ${pct(summary.withoutContext.jevRaw
 console.log(`Cascade, without step context:  ${pct(summary.withoutContext.cascade)}  (${summary.withoutContext.belowThreshold} below ${MIN_CONFIDENCE})`);
 console.log(`Jev raw, with step context:     ${pct(summary.withContext.jevRaw)}`);
 console.log(`Cascade, with step context:     ${pct(summary.withContext.cascade)}  (${summary.withContext.belowThreshold} below ${MIN_CONFIDENCE})`);
+console.log(`Cascade with the no-signal change (not shipped): ${pct(summary.withoutContext.cascadeChange)} without step context, ${pct(summary.withContext.cascadeChange)} with`);
+// Jev raw has no verdict where rules decided alone (explicit signals) or Jev failed; the cascade's verdict stands in.
+printCostReport(
+  rows.map((r) => ({
+    label: r.label,
+    passes: [r.withoutContext, r.withContext].map((v) => ({
+      rules: r.rules,
+      jev: KINDS.has(v.jev ?? "") ? (v.jev as FailureKind) : v.cascade,
+      cascade: v.cascade,
+      change: v.cascadeChange,
+    })),
+  })),
+  [["rules", "Rules"], ["jev", "Jev raw"], ["cascade", "Cascade, as shipped"], ["change", "Cascade with the change"]],
+);
 console.log(`Jev calls: ${calls} (model ${[...models].join(", ")}), tokens: ${inputTokens} in / ${outputTokens} out`);
 console.log("\nMisclassified by the cascade with step context:");
 for (const r of rows.filter((r) => r.withContext.cascade !== r.label)) {

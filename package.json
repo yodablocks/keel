@@ -40,7 +40,8 @@
     "bench": "node --env-file-if-exists=.env scripts/bench.ts",
     "openroles:sync": "node --env-file-if-exists=.env scripts/openroles-sync.ts",
     "eval:label": "node scripts/eval-label.ts",
-    "eval:harvest": "node scripts/eval-harvest.ts"
+    "eval:harvest": "node scripts/eval-harvest.ts",
+    "eval:cost": "node scripts/eval-cost.ts"
   },
   "dependencies": {
     "pg": "^8.23.1"
