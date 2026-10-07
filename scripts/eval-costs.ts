@@ -59,3 +59,28 @@ export function score(pairs: Array<[FailureKind, FailureKind]>, u: CostUnits = P
   }
   return out;
 }
+
+// One labelled case and the verdict of each classifier variant, per pass (without and with step context).
+export interface CostRow {
+  label: FailureKind;
+  passes: Array<Record<string, FailureKind>>;
+}
+
+export function printCostReport(rows: CostRow[], variants: Array<[key: string, name: string]>): void {
+  const width = Math.max(...variants.map(([, name]) => name.length));
+  const total = (key: string, u: CostUnits) =>
+    score(rows.flatMap((r) => r.passes.map((p) => [r.label, p[key]!] as [FailureKind, FailureKind])), u);
+  console.log(`\nCost of wrong actions (eval-sets/COSTS.md), summed over ${rows[0]?.passes.length ?? 0} passes, lower is better:`);
+  for (const [key, name] of variants) {
+    const { cost: c, misses } = total(key, PRIMARY);
+    const split = Object.entries(misses)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, n]) => `${k} ${n}`)
+      .join(", ");
+    console.log(`  ${name.padEnd(width)}  ${String(c).padStart(4)}   ${split || "no misses"}`);
+  }
+  console.log(`Sensitivity: ${SENSITIVITY.map(([label]) => label).join(" | ")}`);
+  for (const [key, name] of variants) {
+    console.log(`  ${name.padEnd(width)}  ${SENSITIVITY.map(([label, u]) => String(total(key, u).cost).padStart(label.length)).join(" | ")}`);
+  }
+}
