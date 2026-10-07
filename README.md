@@ -117,7 +117,7 @@ The dashboard has **no login**. It listens on `127.0.0.1` by default; don't expo
 
 `pnpm bench` on the same Apple M4 laptop (10 cores, 32 GB), Postgres 17 in Docker on the same machine. Each run executes one durable step; 2,000 runs per configuration; all workers in **one Node process**. Runs per second:
 
-| Workers | Sep 2026: macOS 26, Node 25 | Oct 2026: macOS 27, Node 26 |
+| Workers | Sep 2026: Darwin 25.6, Node 25 | Oct 2026: Darwin 27.0, Node 26 |
 |---|---|---|
 | 1 | 445 to 471 | 265 to 278 |
 | 2 | 861 to 873 | 510 to 576 |
