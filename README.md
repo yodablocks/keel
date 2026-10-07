@@ -253,6 +253,34 @@ as well as the current cascade on the same Jev answers.
 - Same caveats as the public set: one labeller who wrote the classifier prompt, errors mostly from development,
   no step context, and no `needs_human` cases at all.
 
+### Weighted by cost (exploratory)
+
+Accuracy counts every miss the same, but failing a run that would have succeeded loses it, while retrying one
+that was going to fail wastes a couple of attempts. After two readers of the results made that point, I wrote a
+cost table, in units of one wasted retry ([`eval-sets/COSTS.md`](eval-sets/COSTS.md)), and committed it before
+scoring anything with it. Costs:
+- a lost run costs 5
+- a needless escalation costs 2
+- retrying something that needed a person costs 20
+
+`pnpm eval:cost <result file>`, summed over both passes, lower is better:
+
+| | Public set (75) | Fresh set (60) |
+|---|---|---|
+| Rules only | 370 | 120 |
+| Jev alone | 59 | 39 |
+| keel cascade, as shipped | 121 | 42 |
+| keel cascade with the reverted change | not recorded | 39 |
+
+- **Exploratory, not a decision.** Both sets were seen before the costs were written, and one reader had already
+  shown the change wins on the fresh set once a lost run costs more than 3 to 4 retries. The table sets it at 5.
+- **By cost, the change wins on the fresh set (39 against 42), but only just.** With a lost run at 2 instead of 5,
+  the shipped cascade wins (18 against 21). So on this set the answer depends on the costs.
+- **Neither set tests the most expensive mistake.** No case in either set that needed a person was retried, so the
+  20 never applies. The fresh set has no such cases at all.
+- The next fresh set will be scored on this table, with the decision rule in `COSTS.md`, and will include
+  approval and permission errors so that the expensive cell can be measured.
+
 ### 30 synthetic cases
 
 `pnpm eval:classifier` on 30 hand-labelled agent failures written for keel:
