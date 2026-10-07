@@ -34,3 +34,31 @@ the change, 49 and 48 before). Does that conclusion depend on who labels?
 The labellers are language models, like Jev. They may agree with Jev more than a person does, which favours the
 change, since the change uses Jev's answer more often. So a loss under model labels is stronger evidence than a
 win. Four models from one vendor are also not four independent labellers.
+
+## Result, 2026-10-07
+
+Labels in this directory, one file per model, written blind (each agent reported opening only the case file).
+`node scripts/eval-rescore.ts --result eval-results/classifier-2026-10-07T07-57-20.json --cases
+eval-sets/fresh-issues.json eval-sets/model-labels/{fable,opus,sonnet,haiku}.json`:
+
+| Labeller | Kind, after / before | Action, after / before | Labels that mean "fail" (`fatal` + `bad_input`) |
+|---|---|---|---|
+| Human (committed labels) | 87 / 97 | 105 / 110 | 48 |
+| fable | 91 / 94 | 107 / 110 | 48 |
+| opus | 91 / 94 | 107 / 110 | 48 |
+| sonnet | 84 / 93 | 102 / 106 | 46 |
+| haiku | 81 / 85 | 99 / 106 | 46 |
+
+Out of 120 (60 cases, two passes).
+
+- **The conclusion holds across labellers.** The change loses under all four model labellings, by kind and by
+  action.
+- **`fable.json` and `opus.json` are byte-identical.** Two models agreeing on all 60 cases is unlikely, so the
+  two aliases probably ran the same model. They count as one labeller, which leaves three, all from one vendor.
+- Agreement with the human labels on kind: 52 (fable, opus), 51 (sonnet), 37 (haiku) of 60. Haiku labels 21
+  cases `bad_input` where the others mostly say `fatal`. Both kinds fail a run, and the change still loses on
+  action under haiku's labels.
+- The label mix was offered as the likely reason the two sets disagree. Every labeller marks 46 to 48 of these 60
+  as errors that should fail the run, against 32 of 75 in the public set (human labels). So the difference is in
+  the errors, not in one labeller's habits. Most errors here are configuration and API misuse, which a fallback to
+  `fatal` gets right.
