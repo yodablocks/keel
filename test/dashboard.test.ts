@@ -98,6 +98,39 @@ test("rejecting an escalation fails the run", async (t) => {
   await waitFor(async () => (await engine.getRun(id))?.status === "failed", 5000, "run to fail");
 });
 
+test("a rejected run can be retried from the dashboard, and the hint reaches the handler", async (t) => {
+  const { engine, queue, dashboard } = await setup(t);
+  const id = await escalatedRun(engine, queue);
+  let page = await (await fetch(`${dashboard.url}/runs/${id}`)).text();
+  const name = /name="name" value="([^"]+)"/.exec(page)![1]!;
+  await post(`${dashboard.url}/approvals`, { csrf: formToken(page), runId: id, name, decision: "reject" });
+  await waitFor(async () => (await engine.getRun(id))?.status === "failed", 5000, "run to fail");
+
+  page = await (await fetch(`${dashboard.url}/runs/${id}`)).text();
+  assert.match(page, /action="\/retries"/);
+  const res = await post(`${dashboard.url}/retries`, { csrf: formToken(page), runId: id, hint: "limit raised to $1,000" });
+  assert.equal(res.status, 303);
+  assert.equal(res.headers.get("location"), `/runs/${id}?flash=retried`);
+
+  const run = await waitFor(async () => {
+    const r = await engine.getRun(id);
+    return r?.status === "completed" && r;
+  }, 5000, "run to complete");
+  assert.equal(run.result, "refunded (limit raised to $1,000)");
+  assert.doesNotMatch(await (await fetch(`${dashboard.url}/runs/${id}`)).text(), /action="\/retries"/, "no retry form on a completed run");
+});
+
+test("a retry without the page's token is refused, and a run that isn't failed is not retried", async (t) => {
+  const { engine, queue, dashboard } = await setup(t);
+  const id = await escalatedRun(engine, queue);
+  const page = await (await fetch(`${dashboard.url}/runs/${id}`)).text();
+
+  assert.equal((await post(`${dashboard.url}/retries`, { runId: id })).status, 403, "no token");
+  const res = await post(`${dashboard.url}/retries`, { csrf: formToken(page), runId: id });
+  assert.equal(res.headers.get("location"), `/runs/${id}?flash=not-retryable`);
+  assert.equal((await engine.getRun(id))?.status, "waiting", "the waiting run was left alone");
+});
+
 test("run data is escaped, never rendered as HTML", async (t) => {
   const { engine, queue, dashboard } = await setup(t);
   const id = await escalatedRun(engine, queue, { note: "<script>alert(1)</script>", quote: '"><img src=x>' });
