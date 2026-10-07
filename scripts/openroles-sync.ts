@@ -63,6 +63,14 @@ async function readBoard({ source, board }: Board, signal: AbortSignal): Promise
     headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
     signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
   });
+  if (response.status === 403 || response.status === 429) {
+    // The host is pushing back: hold every request to it for Retry-After, or a minute. openroles stops for the
+    // whole run instead; keel's retries need the host back eventually, so this waits rather than gives up.
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const coolMs = (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60) * 1000;
+    const host = new URL(url).host;
+    nextSlot.set(host, Math.max(nextSlot.get(host) ?? 0, Date.now() + coolMs));
+  }
   if (!response.ok) {
     throw Object.assign(new Error(`${source}:${board}: HTTP ${response.status} ${response.statusText}`), {
       status: response.status,
