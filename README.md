@@ -277,7 +277,7 @@ keel is an **experimental project**, and the name is not final. All planned mile
 - Budgets can overshoot by one step, because a step's cost is known only after it runs.
 - Idempotency keys protect external calls only for services that accept them.
 - Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
-- A single Postgres instance is the throughput ceiling: about 1,400 to 2,000 runs per second on one laptop in the benchmark above, depending on the OS version.
+- A single Postgres instance is the throughput ceiling: about 1,200 to 2,000 runs per second on one laptop in the benchmark above, lower since a macOS upgrade.
 - The dashboard has no authentication, so it is for local or internal use only.
 - On error messages from public issues, the shipped classifier picks the right kind about 6 times in 10, and the right action about 8 times in 10 ([results](#failure-classification-rules-vs-jev)).
 
