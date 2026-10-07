@@ -55,10 +55,13 @@ test("a transient failure is retried with backoff until it succeeds", async (t) 
     [1, "transient", "HTTP 503"],
     [2, "transient", "HTTP 503"],
   ]);
-  // Full jitter: each wait is random in [0, base * 2^(attempt-1)], plus polling overhead.
-  const slack = 250;
-  assert.ok(calls[1]! - calls[0]! <= 100 + slack, `first backoff ${calls[1]! - calls[0]!}ms`);
-  assert.ok(calls[2]! - calls[1]! <= 200 + slack, `second backoff ${calls[2]! - calls[1]!}ms`);
+  // Full jitter: each wait is random in [0, base * 2^(attempt-1)]. The chosen delays are checked exactly; wall-clock
+  // time only has to respect them, since polling and a busy CI machine add an unbounded amount on top.
+  const delays = run.errors.map((e) => (e.action.type === "retry" ? e.action.delayMs : NaN));
+  assert.ok(delays[0]! >= 0 && delays[0]! <= 100, `first backoff ${delays[0]}ms`);
+  assert.ok(delays[1]! >= 0 && delays[1]! <= 200, `second backoff ${delays[1]}ms`);
+  assert.ok(calls[1]! - calls[0]! >= delays[0]!, `first retry ran ${calls[1]! - calls[0]!}ms after, before its ${delays[0]}ms delay`);
+  assert.ok(calls[2]! - calls[1]! >= delays[1]!, `second retry ran ${calls[2]! - calls[1]!}ms after, before its ${delays[1]}ms delay`);
 });
 
 test("a validation error is not retried", async (t) => {
