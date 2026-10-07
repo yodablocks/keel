@@ -47,7 +47,6 @@ const recording: SystemOneClient = {
 };
 
 const MIN_CONFIDENCE = 0.5;
-const KINDS = new Set(["transient", "bad_input", "bad_output", "needs_human", "fatal"]);
 const rules = new RuleClassifier();
 const cascade = new JevClassifier({ client: recording, minConfidence: MIN_CONFIDENCE });
 
@@ -55,8 +54,6 @@ interface Variant {
   jev: string | null;
   jevConfidence: number | null;
   cascade: FailureKind;
-  /** What the cascade answered before the no-signal fix, derived from the same Jev answer: rules whenever Jev was unsure. */
-  cascadeBefore: FailureKind;
 }
 
 async function run(ctx: FailureContext): Promise<Variant> {
@@ -64,14 +61,7 @@ async function run(ctx: FailureContext): Promise<Variant> {
   const verdict = await cascade.classify(ctx);
   // Set by the recording client during classify; TypeScript cannot see that assignment.
   const answer = lastAnswer as { choice?: string; confidence?: number } | undefined;
-  const byRules = await rules.classify(ctx);
-  const jevUsable = typeof answer?.choice === "string" && KINDS.has(answer.choice) && (answer.confidence ?? 0) >= MIN_CONFIDENCE && byRules.confidence < 1;
-  return {
-    jev: answer?.choice ?? null,
-    jevConfidence: answer?.confidence ?? null,
-    cascade: verdict.kind,
-    cascadeBefore: jevUsable ? (answer!.choice as FailureKind) : byRules.kind,
-  };
+  return { jev: answer?.choice ?? null, jevConfidence: answer?.confidence ?? null, cascade: verdict.kind };
 }
 
 interface Row {
@@ -110,18 +100,8 @@ const summary = {
   source,
   cases: n,
   rules: correct((r) => r.rules),
-  withoutContext: {
-    jevRaw: correct((r) => r.withoutContext.jev),
-    cascade: correct((r) => r.withoutContext.cascade),
-    cascadeBefore: correct((r) => r.withoutContext.cascadeBefore),
-    belowThreshold: below((r) => r.withoutContext.jevConfidence),
-  },
-  withContext: {
-    jevRaw: correct((r) => r.withContext.jev),
-    cascade: correct((r) => r.withContext.cascade),
-    cascadeBefore: correct((r) => r.withContext.cascadeBefore),
-    belowThreshold: below((r) => r.withContext.jevConfidence),
-  },
+  withoutContext: { jevRaw: correct((r) => r.withoutContext.jev), cascade: correct((r) => r.withoutContext.cascade), belowThreshold: below((r) => r.withoutContext.jevConfidence) },
+  withContext: { jevRaw: correct((r) => r.withContext.jev), cascade: correct((r) => r.withContext.cascade), belowThreshold: below((r) => r.withContext.jevConfidence) },
   jevCalls: calls,
   models: [...models],
   tokens: { input: inputTokens, output: outputTokens },
@@ -134,13 +114,6 @@ console.log(`Jev raw, without step context:  ${pct(summary.withoutContext.jevRaw
 console.log(`Cascade, without step context:  ${pct(summary.withoutContext.cascade)}  (${summary.withoutContext.belowThreshold} below ${MIN_CONFIDENCE})`);
 console.log(`Jev raw, with step context:     ${pct(summary.withContext.jevRaw)}`);
 console.log(`Cascade, with step context:     ${pct(summary.withContext.cascade)}  (${summary.withContext.belowThreshold} below ${MIN_CONFIDENCE})`);
-console.log(`Cascade before the no-signal fix: ${pct(summary.withoutContext.cascadeBefore)} without step context, ${pct(summary.withContext.cascadeBefore)} with`);
-for (const key of ["withoutContext", "withContext"] as const) {
-  const changed = rows.filter((r) => r[key].cascade !== r[key].cascadeBefore);
-  const better = changed.filter((r) => r[key].cascade === r.label).length;
-  const worse = changed.filter((r) => r[key].cascadeBefore === r.label).length;
-  console.log(`  ${key}: the fix changed ${changed.length} verdicts, ${better} better, ${worse} worse, ${changed.length - better - worse} wrong either way`);
-}
 console.log(`Jev calls: ${calls} (model ${[...models].join(", ")}), tokens: ${inputTokens} in / ${outputTokens} out`);
 console.log("\nMisclassified by the cascade with step context:");
 for (const r of rows.filter((r) => r.withContext.cascade !== r.label)) {
