@@ -34,7 +34,7 @@ What it does not fix:
 
 Labelling notes, 2026-10-07: 75 of 76 cases are labelled. **P03** (`AIUnknownError: An error has occurred`) is
 left unlabelled and so excluded, because the message carries no information to judge from. For **P01** the
-labeller asked for a suggestion; Claude suggested `needs_human` (with `fatal` as the alternative) and that label
+labeller asked an AI assistant for a suggestion; it suggested `needs_human` (with `fatal` as the alternative) and that label
 was chosen. Every other label was made without suggestions.
 
 ## openroles-2026-10-07.json
