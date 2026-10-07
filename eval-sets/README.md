@@ -24,11 +24,23 @@ How it was built, so it can be checked:
 
 What it does not fix:
 
-- **One labeller.** The labels are the maintainer's. They are committed before any classifier run on this
-  set, so they can't be tuned to the results, but nobody else has checked them.
-- **Reported, not observed.** These are errors people hit and posted, mostly while developing. The class mix
-  follows what gets reported: many `fatal` and `bad_input`, few `needs_human`.
+- **One labeller, and it is the classifier's author.** The messages were written by other people, and the labels
+  were committed (c070723) before any classifier ran on the set, so they can't have been tuned to the results.
+  But they are still one person's judgement, and that person also wrote the classifier prompt.
+- **Reported, not observed.** These are errors people hit and posted, mostly while developing. The labelled mix
+  is 25 `fatal`, 22 `bad_output`, 20 `transient`, 7 `bad_input` and 1 `needs_human`, so the set says almost
+  nothing about escalation.
 - **No context.** Without step and output, the M11 step-context comparison does not apply to this set.
+
+Labelling notes, 2026-10-07: 75 of 76 cases are labelled. **P03** (`AIUnknownError: An error has occurred`) is
+left unlabelled and so excluded, because the message carries no information to judge from. For **P01** the
+labeller asked for a suggestion; Claude suggested `needs_human` (with `fatal` as the alternative) and that label
+was chosen. Every other label was made without suggestions.
+
+## openroles-2026-10-07.json
+
+The one failure from the first `pnpm openroles:sync` run (447 boards): a Lever board that answered 404. Exported
+with `--blind` and labelled the same way. One case is a record, not a score.
 
 ## Labelling rules
 
