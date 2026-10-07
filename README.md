@@ -240,10 +240,10 @@ as well as the current cascade on the same Jev answers.
 
 - **The change lost, so it was reverted.** It changed 8 to 9 verdicts: 1 to 2 for the better, 6 to 7 for the
   worse. The rules' `fatal` fallback stays.
-- **The result doesn't depend on my labels.** Three model labellers (four aliases, two of which gave identical
-  answers), working blind, relabelled the 60 cases. The change loses under every one of their labellings, by kind
-  and by action ([`eval-sets/model-labels/`](eval-sets/model-labels/PROTOCOL.md), protocol committed before
-  labelling).
+- **The result doesn't depend on my labels.** Three models (Opus 5.5, Sonnet 5.5 and Haiku 4.5), working blind,
+  relabelled the 60 cases. The change loses under every one of their labellings, by kind and by action
+  ([`eval-sets/model-labels/`](eval-sets/model-labels/PROTOCOL.md), protocol committed before labelling). A
+  fourth requested model ran as Opus 5.5 again, so it doesn't count.
 - The two sets disagree about the fallback: it cost about 3 cases on the public set and gained about 5 here. Every
   labeller marks 46 to 48 of these 60 as errors that should fail the run, mostly configuration and API misuse,
   against 32 of 75 in the public set. A fallback to `fatal` is right more often here. Neither set is large enough

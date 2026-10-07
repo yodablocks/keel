@@ -51,10 +51,14 @@ eval-sets/fresh-issues.json eval-sets/model-labels/{fable,opus,sonnet,haiku}.jso
 
 Out of 120 (60 cases, two passes).
 
-- **The conclusion holds across labellers.** The change loses under all four model labellings, by kind and by
+- **The conclusion holds across labellers.** The change loses under every model labelling, by kind and by
   action.
-- **`fable.json` and `opus.json` are byte-identical.** Two models agreeing on all 60 cases is unlikely, so the
-  two aliases probably ran the same model. They count as one labeller, which leaves three, all from one vendor.
+- **Only three models ran, not four.** The agent logs record the model each one ran on: `fable` ran on
+  `claude-opus-5-5`, the same as `opus`; `sonnet` on `claude-sonnet-5-5`; `haiku` on `claude-haiku-4-5`. The
+  `fable` request was accepted without an error but not honoured, and this was found only after the run. That is
+  why `fable.json` and `opus.json` are byte-identical: one model, the same prompt, run twice. They count as one
+  labeller, Opus 5.5. The three labellers are all from one vendor. `fable.json` is kept as the record of the
+  second run.
 - Agreement with the human labels on kind: 52 (fable, opus), 51 (sonnet), 37 (haiku) of 60. Haiku labels 21
   cases `bad_input` where the others mostly say `fatal`. Both kinds fail a run, and the change still loses on
   action under haiku's labels.
