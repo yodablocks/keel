@@ -174,32 +174,77 @@ When a handler throws, the error goes through a **classifier** (what kind of fai
 
 The full recording, made with real Jev (`jev-1.13.0`, October 2026), is in [docs/demo-transcript.txt](docs/demo-transcript.txt); the September recording is kept as [docs/demo-transcript-2026-09.txt](docs/demo-transcript-2026-09.txt). `pnpm test` runs the offline version and checks every moment.
 
+## Real use
+
+`pnpm openroles:sync` runs a workload of mine through keel: it reads every job board that openroles, my own job
+search tool, tracks, one run per board, against the live Ashby, Greenhouse and Lever APIs. First run, October 2026:
+
+- 447 runs, 8,287 jobs read, 6 minutes at one request per second per host
+- 446 completed, 1 failed: a Lever board that answered 404, which keel failed without retrying
+- The first offline test of this workload found a bug: rules marked `fetch` network errors as `fatal`, because
+  `fetch` puts the code on `error.cause`. Fixed before any eval was run
+
+It is real work, but it is not an agent: there are no model steps, and nothing crashed. It shows the engine running
+something other than the demo, not how classification performs in production.
+
 ## Failure classification: rules vs Jev
 
-`pnpm eval:classifier` on 30 hand-labelled agent failures, `jev-latest`, September 2026:
+### 75 error messages from public issues
 
-| Classifier | First run (M7) | Latest run (M11) |
+[`eval-sets/public-issues.json`](eval-sets/public-issues.json): error messages copied from GitHub issues of agent
+and model SDKs (openai-node, anthropic-sdk-typescript, vercel/ai, langchainjs, openai-agents-js, the MCP SDK,
+undici), each linked to its issue. I labelled them and committed the labels before any classifier ran.
+`pnpm eval:classifier --cases eval-sets/public-issues.json`, `jev-1.13.0`, October 2026:
+
+| Classifier | Right kind | Right action |
 |---|---|---|
-| Rules only (status codes, error codes, error classes) | 14 / 30 (47%) | 14 / 30 (47%) |
-| Jev, error and task only | 29 / 30 (97%) | 30 / 30 (100%) |
-| Jev with the failing step and model output | | 30 / 30 (100%) |
-| keel cascade (rules for explicit signals, Jev for the rest, rules below 0.5 confidence) | 29 / 30 (97%) | 30 / 30 (100%) |
+| Rules only | 28 / 75 (37%) | 38 / 75 (51%) |
+| Jev alone | 50 to 51 / 75 (67 to 68%) | 63 to 64 / 75 (84 to 85%) |
+| keel cascade (`JevClassifier`: rules for explicit signals, Jev for the rest, rules below 0.5 confidence) | 46 to 47 / 75 (61 to 63%) | 59 to 60 / 75 (79 to 80%) |
 
-- Rules can only read status and error codes; Jev also reads the message, and since M11 the step that failed and what the model produced.
-- The M7 miss, an ambiguous tool-argument error, is classified correctly in the latest run even **without** step context, so the fix can't be credited to context alone. The M7 run did not record the concrete model version behind `jev-latest`, so a model update can't be ruled out; runs now record it.
-- What step context measurably changes is confidence: on that ambiguous case it rose from 0.60 to 0.75, it rose on every `bad_output` case, and the mean across all 30 went from 0.90 to 0.92 (up on 9 cases, down on 4).
+- Ranges are two passes over identical input in one run, so a difference of one case is run-to-run noise.
+- **Right action** counts a verdict as right when keel's default policy would do the same thing as for the label:
+  `bad_input` and `fatal` both fail. I chose this measure after seeing the results, so the kind column is the
+  headline. 13 of Jev's 25 misses are between `fatal` and `bad_input`.
+- Rules are wrong in the costly direction: 36 of their 37 wrong actions fail a run that should have been retried
+  (14) or retried with a correction (22).
+- **The cascade did worse than Jev alone.** Below 0.5 confidence it uses the rule verdict, and rules answer
+  `fatal` when they see no explicit signal. That changed 7 verdicts here: 1 for the better, 4 for the worse, and 2
+  wrong either way. Changing the fallback on the strength of this set would be tuning on the test set, so it is
+  recorded under [Known risks](PLAN.md#classification) until a fresh set can check it.
 
-**Caveat:** the eval set is synthetic, and it was written and labelled by the same author as the classifier prompt. At 100% it is also too easy to show further gains. It shows the mechanism works, not how it will perform on your production failures. To build a real set, `pnpm eval:export` writes your runs' actual failures to a file for labelling, and `pnpm eval:classifier --cases <file>` scores it. Full results are in [`eval-results/`](eval-results/).
+**Caveats:** the messages were written by other people, but the labels are one person's, and that person wrote
+the classifier prompt. Most errors were posted while developing, not hit in production. The mix has 1
+`needs_human` case, so the set says almost nothing about escalation, and there is no step context. Details, and
+the two labelling notes, are in [`eval-sets/README.md`](eval-sets/README.md).
+
+### 30 synthetic cases
+
+`pnpm eval:classifier` on 30 hand-labelled agent failures written for keel:
+
+| Classifier | M7 (Sep 2026) | M11 (Sep 2026) | Oct 2026 (`jev-1.13.0`) |
+|---|---|---|---|
+| Rules only (status codes, error codes, error classes) | 14 / 30 (47%) | 14 / 30 (47%) | 15 / 30 (50%) |
+| Jev, error and task only | 29 / 30 (97%) | 30 / 30 (100%) | 30 / 30 (100%) |
+| Jev with the failing step and model output | | 30 / 30 (100%) | 30 / 30 (100%) |
+| keel cascade | 29 / 30 (97%) | 30 / 30 (100%) | 30 / 30 (100%) |
+
+- Rules gained one case in October because they now read the network code on `error.cause` (the `fetch failed` case).
+- The M7 miss, an ambiguous tool-argument error, is classified correctly in the later runs even **without** step context, so the fix can't be credited to context alone. The M7 run did not record the concrete model version behind `jev-latest`, so a model update can't be ruled out; runs now record it.
+- Step context raised confidence: on that ambiguous case from 0.60 to 0.75, and the mean across all 30 from 0.90 to 0.92 (up on 9 cases, down on 4). The public set above shows Jev varies by about one case in 75 between identical calls, so shifts this small may be noise.
+
+This set was written and labelled by the classifier's author, and at 100% it is too easy to show anything more; the public set above is the harder test. To build a set from your own runs, `pnpm eval:export --blind` writes their failures to a file, `pnpm eval:label` labels it, and `pnpm eval:classifier --cases <file>` scores it. Full results are in [`eval-results/`](eval-results/).
 
 ## Status and limitations
 
-keel is an **experimental project**, and the name is not final. All planned milestones are implemented and tested ([PLAN.md](PLAN.md)), but it hasn't been used in production. Known limitations include:
+keel is an **experimental project**, and the name is not final. All planned milestones are implemented and tested ([PLAN.md](PLAN.md)). Apart from [one real workload of mine](#real-use), it hasn't been used, and never in production. Known limitations include:
 
 - Budgets can overshoot by one step, because a step's cost is known only after it runs.
 - Idempotency keys protect external calls only for services that accept them.
 - Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
 - A single Postgres instance is the throughput ceiling: about 2,000 runs per second in the benchmark above.
 - The dashboard has no authentication, so it is for local or internal use only.
+- On error messages from public issues, the shipped classifier picks the right kind about 6 times in 10, and the right action about 8 times in 10 ([results](#failure-classification-rules-vs-jev)).
 
 The full list is under [Known risks](PLAN.md#known-risks), each tagged with the milestone that addresses it.
 
@@ -213,9 +258,12 @@ pnpm typecheck   # tsc --noEmit
 pnpm db:migrate  # applies db/migrations/*.sql in order
 pnpm build       # compiles src/ to dist/ (JavaScript and type declarations)
 pnpm bench       # throughput and latency, results in bench-results/
+pnpm openroles:sync  # the real workload (needs an openroles database)
+pnpm eval:classifier [--cases file]  # classifier eval; needs TYPESAFE_API_KEY
+pnpm eval:export --blind / pnpm eval:label <file>  # build and label an eval set
 ```
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the type check and the full test suite against Postgres 17 on every pull request and every push to `main`.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the type check and the full test suite against Postgres 17, on Node 24 and Node 26, on every pull request and every push to `main`.
 
 Node runs the TypeScript sources directly, so there is no build step. Tests include real crash recovery: worker processes are killed with `SIGKILL` mid-run.
 
@@ -223,7 +271,8 @@ Node runs the TypeScript sources directly, so there is no build step. Tests incl
 src/          engine, failure classification, Jev classifier, migrations
 db/           SQL migrations
 test/         unit, integration and crash tests
-scripts/      demo, classifier eval, migrate
+scripts/      demo, classifier eval and labelling, real workload, migrate
+eval-sets/    labelled eval sets beyond the synthetic one
 docs/         guide and demo transcript
 PLAN.md       milestones, acceptance criteria, known risks
 ```

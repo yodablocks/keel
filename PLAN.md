@@ -12,6 +12,7 @@
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
 | 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging | Done |
+| October 2026 refresh | Node 24 and 26 in CI, dependency updates, a real workload (`openroles:sync`), a held-out classifier eval from public issues, `fetch` cause codes in rules | Done; bench rerun open |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -315,6 +316,7 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 - One Postgres is the throughput ceiling: about 2,000 runs per second on the benchmark machine. **Measured in M15; sharding is a non-goal**
 - Sharded spend costs about 12 to 15% throughput at 4 to 8 workers compared with a single row. **Accepted**
 - The benchmark runs all workers in one Node process with Postgres on the same machine; production numbers will differ. **Accepted**
+- The recorded benchmark is from September 2026 on Node 25, which reached end of life in June 2026. An October rerun on battery power was about 35% slower on Node 25 and Node 26 alike, so it was not recorded. **Open: rerun on mains power**
 
 ### Operations
 
@@ -331,7 +333,9 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 
 ### Classification
 
-- The eval set is synthetic and labelled by the classifier's author, and at 100% it is too easy to show gains. M11 added the tooling to build a real set (`pnpm eval:export`); the set itself needs real failures and a person to label them. **Open: needs real data**
+- The eval set is synthetic and labelled by the classifier's author, and at 100% it is too easy to show gains. M11 added the tooling to build a real set (`pnpm eval:export`). In October 2026 a held-out set of 75 error messages from public SDK issues was added (`eval-sets/public-issues.json`, labels committed before any classifier ran): rules 37%, Jev 67 to 68%, the cascade 61 to 63%. The labels are still the author's, and the messages are mostly from development, not production. **Partly addressed; open: a second labeller and production failures**
+- The cascade's fallback below 0.5 confidence uses the rule verdict, and rules answer `fatal` without an explicit signal. On the public set this cost about 3 of 75 cases against Jev alone (7 verdicts changed: 1 better, 4 worse). A change, such as keeping Jev's answer when rules have no signal, would be tuned on that set and needs a fresh one to check. **Open**
+- ~~Rules ignored the network code that `fetch` puts on `error.cause`, so `fetch failed` network errors failed without a retry.~~ Fixed in October 2026, found by the `openroles:sync` workload; the error history keeps the code as `causeCode`
 - Jev adds one API round trip to each failure without an explicit signal, about 650 input tokens per call on the eval set. **Accepted**
 
 ### Strategy
