@@ -19,6 +19,15 @@ const REPOS = [
   "mistralai/client-ts",
   "ollama/ollama-js",
   "cohere-ai/cohere-typescript",
+  // Added after the first run found only 40 eligible lines (count seen, no line read): more TypeScript agent and
+  // workflow SDKs, including the durable execution engines keel competes with.
+  "langchain-ai/langgraphjs",
+  "huggingface/huggingface.js",
+  "browserbase/stagehand",
+  "triggerdotdev/trigger.dev",
+  "inngest/inngest-js",
+  "temporalio/sdk-typescript",
+  "e2b-dev/E2B",
 ];
 const QUERIES = ["Error", "fetch failed", "timeout", "429", "400", "JSON", "tool"];
 const ALREADY_USED = ["openai/openai-node", "anthropics/anthropic-sdk-typescript", "vercel/ai", "langchain-ai/langchainjs", "nodejs/undici", "openai/openai-agents-js", "modelcontextprotocol/typescript-sdk"];
