@@ -212,13 +212,41 @@ undici), each linked to its issue. I labelled them and committed the labels befo
   (14) or retried with a correction (22).
 - **The cascade did worse than Jev alone.** Below 0.5 confidence it uses the rule verdict, and rules answer
   `fatal` when they see no explicit signal. That changed 7 verdicts here: 1 for the better, 4 for the worse, and 2
-  wrong either way. Changing the fallback on the strength of this set would be tuning on the test set, so it is
-  recorded under [Known risks](PLAN.md#classification) until a fresh set can check it.
+  wrong either way. Changing the fallback on the strength of this set would have been tuning on the test set, so
+  the change was checked on a fresh set instead (below), where it lost.
 
 **Caveats:** the messages were written by other people, but the labels are one person's, and that person wrote
 the classifier prompt. Most errors were posted while developing, not hit in production. The mix has 1
 `needs_human` case, so the set says almost nothing about escalation, and there is no step context. Details, and
 the two labelling notes, are in [`eval-sets/README.md`](eval-sets/README.md).
+
+### 60 fresh error messages, to check a fallback change
+
+The finding above suggested a change: when Jev is unsure and the rules found no signal, keep Jev's answer instead
+of the rules' `fatal` default. To check it without tuning on the public set, `pnpm eval:harvest` sampled 60 new
+error lines from issues in 13 other repositories (Temporal, Trigger.dev, Inngest, LangGraph.js, Mastra, E2B and
+others), with fixed queries, exclusions and seed, so no case was picked by hand
+([`eval-sets/fresh-issues.json`](eval-sets/fresh-issues.json)). I labelled them and committed the labels before
+any classifier ran. The decision rule, written before the set existed: ship the change only if it scores at least
+as well as the current cascade on the same Jev answers.
+
+| Classifier | Right kind | Right action |
+|---|---|---|
+| Always answer `fatal` (baseline) | 43 / 60 (72%) | 48 / 60 (80%) |
+| Rules only | 43 / 60 (72%) | 48 / 60 (80%) |
+| Jev alone | 43 to 44 / 60 (72 to 73%) | 52 to 53 / 60 (87 to 88%) |
+| keel cascade, as shipped | 48 to 49 / 60 (80 to 82%) | 55 / 60 (92%) |
+| keel cascade with the change | 43 to 44 / 60 (72 to 73%) | 52 to 53 / 60 (87 to 88%) |
+
+- **The change lost, so it was reverted.** It changed 8 to 9 verdicts: 1 to 2 for the better, 6 to 7 for the
+  worse. The rules' `fatal` fallback stays.
+- The two sets disagree about the fallback: it cost about 3 cases on the public set and gained about 5 here. The
+  likely reason is the label mix: 43 of these 60 are `fatal`, against 25 of 75 in the public set, so a fallback to
+  `fatal` is right more often here. Neither set is large enough to settle it.
+- A classifier that always answers `fatal` matches rules and Jev on the kind here, so the kind score on this set
+  says little on its own. The action column separates them better.
+- Same caveats as the public set: one labeller who wrote the classifier prompt, errors mostly from development,
+  no step context, and no `needs_human` cases at all.
 
 ### 30 synthetic cases
 

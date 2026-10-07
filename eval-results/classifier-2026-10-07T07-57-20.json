@@ -1,0 +1,1170 @@
+{
+  "model": "jev-1.13.0",
+  "summary": {
+    "source": "eval-sets/fresh-issues.json",
+    "cases": 60,
+    "rules": 43,
+    "withoutContext": {
+      "jevRaw": 43,
+      "cascade": 43,
+      "cascadeBefore": 49,
+      "belowThreshold": 11
+    },
+    "withContext": {
+      "jevRaw": 44,
+      "cascade": 44,
+      "cascadeBefore": 48,
+      "belowThreshold": 10
+    },
+    "jevCalls": 120,
+    "models": [
+      "jev-1.13.0"
+    ],
+    "tokens": {
+      "input": 82730,
+      "output": 7016
+    }
+  },
+  "rows": [
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Inngest error: A signing key is required to run in Cloud mode, but no signing key was found.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "signal is aborted without reason",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.92,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.91,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "4 DEADLINE_EXCEEDED: context deadline exceeded",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot read properties of null (reading 'thread_id')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.82,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.8,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot read properties of undefined (reading 'content') at AzureOpenAI.streamChat (file:///app/node_modules/@llamaindex/openai/dist/index.js:1143:32)",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.73,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.74,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "8 RESOURCE_EXHAUSTED: MultiOperation could not be executed.",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "require() of ES Module *****/services/asm-saas-worker/build/lib/payload-converter.js from /Users/nohehf/Documents/ESCAPE/product/node_modules/@temporalio/common/lib/internal-non-workflow/data-converter-helpers.js not supported.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 1,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 1,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Got completion for unknown requestId undefined",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.86,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.87,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Error making gateway request: error serializing sdk request: json: error calling MarshalJSON for type json.RawMessage: unexpected end of JSON input",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.46,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.5,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "exception TypeError: fetch failed sending request",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.97,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.97,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "{\"error\":{\"code\":400,\"message\":\"Should provide instances for text model prediction.\",\"status\":\"INVALID_ARGUMENT\"}}",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.96,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.97,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "too many values to unpack (expected 2)",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.68,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.65,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "attempted relative import with no known parent package",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.97,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.97,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Could not import trigger/sharp-task.ts",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "ID LocalBrowserLaunchOptions already exists in the registry",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.86,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.85,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 status code (no body)",
+      "label": "bad_input",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.89,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.87,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "The toolConfig field must be defined when using toolUse and toolResult content blocks.",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.62,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.61,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot find package 'pkce-challenge' imported from /mnt/filestore/data/project/.mastra/output/index.mjs",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "unhashable type: 'list'",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.92,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.94,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid state: ReadableStream is locked",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.75,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.75,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Do not know how to serialize a BigInt",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.8,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.78,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "HTTP 400: {\"success\":false,\"error\":{\"issues\":[{\"code\":\"invalid_type\",\"expected\":\"string\",\"received\":\"undefined\",\"path\":[\"thread_id\"],\"message\":\"Required\"},{\"validation\":\"uuid\",\"code\":\"invalid_string\",\"message\":\"Invalid uuid\",\"path\":[\"assistant_id\"]}],\"name\":\"ZodError\"}}",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.86,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.84,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 Missing required parameter: 'messages[3].content[0].type'.",
+      "label": "bad_output",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.89,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.86,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "test error",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.52,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.53,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Input validation failed: TypeError: undefined is not an object (evaluating 'def.valueType._zod')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.73,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.73,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "You seem to be calling `API client` on a page in an uninitialized `Stagehand` object. Ensure you are running `await stagehand.init()` on the Stagehand object before referencing the `page` object.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.85,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.86,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot read properties of undefined (reading 'selector')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.92,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.92,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "process is not defined",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.97,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.97,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Expected double-quoted property name in JSON at position 121 (line 6 column 5)",
+      "label": "bad_output",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.45,
+        "cascade": "bad_output",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.41,
+        "cascade": "bad_output",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "The Workers runtime canceled this request because it detected that your Worker's code had hung and would never generate a response. Refer to: https://developers.cloudflare.com/workers/observability/errors/",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.42,
+        "cascade": "transient",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.45,
+        "cascade": "transient",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to extract schema for \"assistant\"",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.6,
+        "cascade": "bad_output",
+        "cascadeBefore": "bad_output"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.59,
+        "cascade": "bad_output",
+        "cascadeBefore": "bad_output"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Zod v4 toJSONSchema method not found",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.66,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.62,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Expected server kind cloud, got dev",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.44,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.46,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Request body length does not match content-length header",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.69,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.7,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Unsupported value: 'minimal' is not supported with the 'gpt-5.4' model. Supported values are: 'none', 'low', 'medium', 'high', and 'xhigh'.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.87,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.87,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Task 'automatic-speech-recognition' not supported for provider 'sambanova'. Available tasks: ['conversational', 'feature-extraction']",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.41,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.37,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "require() of ES Module /Users/himself65/Code/LlamaIndexTS/node_modules/.pnpm/ollama@0.4.6/node_modules/ollama/dist/index.js from /Users/himself65/Code/LlamaIndexTS/packages/core/dist/ServiceContext.js not supported.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 1,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 1,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid response body while trying to fetch https://api.browserbase.com/v1/sessions: Premature close",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Notion API error: block type `ai_block` is not supported via the API.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.37,
+        "cascade": "bad_output",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.39,
+        "cascade": "bad_output",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "undefined is not an object (evaluating 'JSON.stringify(value, null, 2).replace')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.92,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.91,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 Missing required parameter: 'messages[1].function_call.name'.",
+      "label": "bad_output",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.73,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.71,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot define property decorate, object is not extensible",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.97,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.97,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot read properties of undefined (reading './node_modules/@temporalio/workflow/lib/worker-interface.js')",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 1,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Failed to perform inference: Unrecognized request argument supplied: signal",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.75,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.73,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Cannot find package '.../node_modules/sharp/index.js'",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.99,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "gRPC timeout.",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "unexpected status code: 400 Bad Request {\"errors\":[{\"code\":\"TAG_INVALID\",\"message\":\"The image tag '20250903.2.preview-fixfetch-url-from-single-property' already exists in the 'deployments-prod/proj_xwogefywkyuvxmapdkll' repository and cannot be overwritten because the tag is immutable.\"}]}",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.45,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.47,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "No current context found",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.37,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.37,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "{\"error\":{\"message\":\"{\\n  \\\"error\\\": {\\n    \\\"code\\\": 503,\\n    \\\"message\\\": \\\"The model is overloaded. Please try again later.\\\",\\n    \\\"status\\\": \\\"UNAVAILABLE\\\"\\n  }\\n}\\n\",\"code\":503,\"status\":\"Service Unavailable\"}}",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "test error 1",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 0.45,
+        "cascade": "transient",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 0.45,
+        "cascade": "transient",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "400 Unknown parameter 'toolConfig'.",
+      "label": "fatal",
+      "rules": "bad_input",
+      "withoutContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.64,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.69,
+        "cascade": "bad_input",
+        "cascadeBefore": "bad_input"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Invalid node type: IMAGE",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.3,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.33,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Process completed with exit code 1.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.6,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.57,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Unrecognized configuration class <class 'transformers_modules.openbmb.MiniCPM_hyphen_V_hyphen_4_5.343b490578adc7e03b687846c33cadd8a00cb80d.configuration_minicpm.MiniCPMVConfig'> for this kind of AutoModel: AutoModelForImageTextToText.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.85,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.85,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "EACCES: permission denied, open '/etc/sudoers'",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.73,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.75,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "It looks like the config file at '/root/.cache/huggingface/hub/models--microsoft--OmniParser-v2.0/snapshots/6600256cb0f1b07651e3bc86166196307bad7e2d/config.json' is not a valid JSON file.",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.65,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.62,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "{\"error\":{\"code\":500,\"message\":\"An internal error has occurred. Please retry or report in https://developers.generativeai.google/guide/troubleshooting\",\"status\":\"INTERNAL\"}}",
+      "label": "transient",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      },
+      "withContext": {
+        "jev": "transient",
+        "jevConfidence": 1,
+        "cascade": "transient",
+        "cascadeBefore": "transient"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "tonic::transport::Error(Transport, hyper::Error(Connect, Custom { kind: InvalidData, error: InvalidCertificateData(\"invalid peer certificate: UnknownIssuer\") }))",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.8,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.79,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "Path /tmp/registry/verdaccio.log does not exist",
+      "label": "fatal",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.95,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "fatal",
+        "jevConfidence": 0.94,
+        "cascade": "fatal",
+        "cascadeBefore": "fatal"
+      }
+    },
+    {
+      "task": "agent",
+      "step": null,
+      "message": "got status: 400 Bad Request. {\"error\":{\"message\":\"exception parsing response\",\"code\":400,\"status\":\"Bad Request\"}}",
+      "label": "bad_input",
+      "rules": "fatal",
+      "withoutContext": {
+        "jev": "bad_output",
+        "jevConfidence": 0.33,
+        "cascade": "bad_output",
+        "cascadeBefore": "fatal"
+      },
+      "withContext": {
+        "jev": "bad_input",
+        "jevConfidence": 0.35,
+        "cascade": "bad_input",
+        "cascadeBefore": "fatal"
+      }
+    }
+  ]
+}
