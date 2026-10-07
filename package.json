@@ -37,7 +37,8 @@
     "dashboard": "node --env-file-if-exists=.env scripts/dashboard.ts",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "pnpm build",
-    "bench": "node --env-file-if-exists=.env scripts/bench.ts"
+    "bench": "node --env-file-if-exists=.env scripts/bench.ts",
+    "openroles:sync": "node --env-file-if-exists=.env scripts/openroles-sync.ts"
   },
   "dependencies": {
     "pg": "^8.23.1"
