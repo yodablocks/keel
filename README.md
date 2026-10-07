@@ -115,20 +115,22 @@ The dashboard has **no login**. It listens on `127.0.0.1` by default; don't expo
 
 ## Performance
 
-`pnpm bench` on an Apple M4 (10 cores, 32 GB), Node 25, Postgres 17 in Docker on the same machine. Each run executes one durable step; 2,000 runs per configuration; all workers in **one Node process**:
+`pnpm bench` on the same Apple M4 laptop (10 cores, 32 GB), Postgres 17 in Docker on the same machine. Each run executes one durable step; 2,000 runs per configuration; all workers in **one Node process**. Runs per second:
 
-| Workers | Runs per second |
-|---|---|
-| 1 | 445 to 471 |
-| 2 | 861 to 873 |
-| 4 | 1,365 to 1,442 |
-| 8 | 1,618 to 1,683 |
-| 16 | 1,897 to 1,904 |
-| 32 | 1,974 to 2,023 |
+| Workers | Sep 2026: Darwin 25.6, Node 25 | Oct 2026: Darwin 27.0, Node 26 |
+|---|---|---|
+| 1 | 445 to 471 | 265 to 278 |
+| 2 | 861 to 873 | 510 to 576 |
+| 4 | 1,365 to 1,442 | 800 to 934 |
+| 8 | 1,618 to 1,683 | 1,059 to 1,471 |
+| 16 | 1,897 to 1,904 | 1,151 to 1,395 |
+| 32 | 1,974 to 2,023 | 1,176 to 1,438 |
 
-Enqueue to completion on idle workers: **p50 26 ms, p99 51 to 55 ms**. That is mostly the default 50 ms polling interval.
+Enqueue to completion on idle workers: **p50 23 to 27 ms, p99 51 to 60 ms** in both. That is mostly the default 50 ms polling interval.
 
-- Throughput scales to 32 workers. An earlier version plateaued at 8 workers and dipped at 32. Profiling showed Node using under half of one core, and the cause was every step updating the same daily spend row per task. Spend is now sharded over 16 rows, which lifted 32 workers from about 1,600 to 2,000 runs per second, at the cost of about 12 to 15% at 4 to 8 workers.
+- **The October drop is the machine, not keel.** keel's September code, benchmarked in alternation with the current code on the same day, scored the same (1,336 to 1,393 runs per second at 32 workers). Between the two dates macOS was upgraded (Darwin 25.6 to 27.0), which is the likely cause: Docker runs Postgres in a virtual machine, and one worker, which is bound by database round trips, lost the most (about 40%). A macOS security scanner (`syspolicyd`) was also busy during the October runs. Battery power was ruled out.
+
+- Throughput scales to 32 workers. An earlier version plateaued at 8 workers and dipped at 32. Profiling showed Node using under half of one core, and the cause was every step updating the same daily spend row per task. Spend is now sharded over 16 rows, which lifted 32 workers from about 1,600 to 2,000 runs per second (September), at the cost of about 12 to 15% at 4 to 8 workers.
 - These are single-machine numbers with the database next to the workers, from a small number of runs each. Network latency to a managed Postgres, more workers per process, or heavier steps change them. Rerun `pnpm bench` on your own setup; raw results are in [`bench-results/`](bench-results/).
 
 ## How it works
@@ -242,7 +244,7 @@ keel is an **experimental project**, and the name is not final. All planned mile
 - Budgets can overshoot by one step, because a step's cost is known only after it runs.
 - Idempotency keys protect external calls only for services that accept them.
 - Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
-- A single Postgres instance is the throughput ceiling: about 2,000 runs per second in the benchmark above.
+- A single Postgres instance is the throughput ceiling: about 1,400 to 2,000 runs per second on one laptop in the benchmark above, depending on the OS version.
 - The dashboard has no authentication, so it is for local or internal use only.
 - On error messages from public issues, the shipped classifier picks the right kind about 6 times in 10, and the right action about 8 times in 10 ([results](#failure-classification-rules-vs-jev)).
 

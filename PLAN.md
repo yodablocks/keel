@@ -12,7 +12,7 @@
 |---|---|---|
 | 1. Core engine | M0 to M9: queue, retries and classification, idempotency, durable steps, waits, budgets, Jev classifier, side effects and approvals, demo | Done |
 | 2. Production readiness | M10 hardening, M11 classification context, M12 budget completeness, M13 dashboard, M14 serverless mode, M15 benchmark and packaging | Done |
-| October 2026 refresh | Node 24 and 26 in CI, dependency updates, a real workload (`openroles:sync`), a held-out classifier eval from public issues, `fetch` cause codes in rules | Done; bench rerun open |
+| October 2026 refresh | Node 24 and 26 in CI, dependency updates, a real workload (`openroles:sync`), a held-out classifier eval from public issues, `fetch` cause codes in rules, bench rerun | Done |
 
 See also [Non-goals](#non-goals) and [Known risks](#known-risks).
 
@@ -313,10 +313,10 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 - ~~Deferred runs of an over-budget tenant are re-evaluated on every claim.~~ Fixed in M10 by parking them (measured: 10,000 deferred runs slowed other tenants by about 37% before, none after)
 - ~~Each idle poll runs two queries (poison-pill sweep, then claim).~~ Fixed in M10: the sweep runs every `sweepEveryMs`
 - Extra queries per claim (decided escalations) and per new step of a tenant's run (tenant budget), and an `EXISTS` check per waiting run. Included in the M15 benchmark numbers. **Accepted**
-- One Postgres is the throughput ceiling: about 2,000 runs per second on the benchmark machine. **Measured in M15; sharding is a non-goal**
+- One Postgres is the throughput ceiling: about 2,000 runs per second on the benchmark machine in September 2026, about 1,200 to 1,450 on the same machine after a macOS upgrade in October. **Measured in M15; sharding is a non-goal**
 - Sharded spend costs about 12 to 15% throughput at 4 to 8 workers compared with a single row. **Accepted**
 - The benchmark runs all workers in one Node process with Postgres on the same machine; production numbers will differ. **Accepted**
-- The recorded benchmark is from September 2026 on Node 25, which reached end of life in June 2026. An October rerun on battery power was about 35% slower on Node 25 and Node 26 alike, so it was not recorded. **Open: rerun on mains power**
+- ~~The recorded benchmark was from September 2026 on Node 25, which reached end of life in June 2026.~~ Rerun in October 2026 on Node 26: about 30% lower throughput (40% at one worker). Not caused by keel: the September code scored the same in an alternating same-day run. Not battery: mains-power runs matched. Most likely the macOS upgrade (Darwin 25.6 to 27.0) slowing Docker's database round trips. Both sets of numbers are in the README. **Accepted: the benchmark depends on the host**
 
 ### Operations
 
