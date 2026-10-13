@@ -176,6 +176,20 @@ When a handler throws, the error goes through a **classifier** (what kind of fai
 
 The full recording, made with real Jev (`jev-1.13.0`, October 2026), is in [docs/demo-transcript.txt](docs/demo-transcript.txt); the September recording is kept as [docs/demo-transcript-2026-09.txt](docs/demo-transcript-2026-09.txt). `pnpm test` runs the offline version and checks every moment.
 
+## Compared with LangGraph and Temporal
+
+[keel-compare](https://github.com/yodablocks/keel-compare) builds the demo agent above twice more, in LangGraph.js and in Temporal, against the same scripted model and tools, and records what each one handles for you and what has to be written by hand.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/yodablocks/keel-compare/main/docs/images/matrix.svg" alt="Matrix of the five demo moments against keel, LangGraph.js and Temporal: which are built in, configured, partly built in or hand-written" width="800">
+</p>
+
+- **Temporal** has the best crash recovery: the server notices a dead worker by its missed heartbeat and hands the step to another one.
+- **LangGraph** has the cleanest human-in-the-loop API: `interrupt()` in any node, resume with any value.
+- **Neither** handles bad model output or budgets: both retry a hallucinated tool call with the same input unless you write the loop yourself.
+
+I wrote keel and designed it for these five cases, so the comparison says where the other two do better, and ends with what I would change in keel.
+
 ## Real use
 
 `pnpm openroles:sync` runs a workload of mine through keel: it reads every job board that openroles, my own job
