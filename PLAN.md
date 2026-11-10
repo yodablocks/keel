@@ -305,7 +305,9 @@ Each risk is tagged with the milestone that addresses it, or **accepted** when i
 
 - Runs whose task has a daily budget cost one extra query per new step (the tenant/task limit check), like tenant runs already did. **Accepted**
 
-- Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented. **Accepted**
+- ~~Budgets can overshoot by one step, since a step's cost is known only after it runs. A single very expensive step is not prevented.~~ A step can now declare `maxUsd`, and keel refuses to start it when the run's spend plus that amount (plus what parallel steps reserved) would cross the per-run USD budget. Steps without `maxUsd` can still overshoot by one step. **Accepted** for those
+- A step whose function throws records no cost, so a failed model call's spend never reaches the budget. Fixing it needs the step to report usage on failure too. **Accepted**
+- `maxUsd` is checked only against the per-run USD budget, not tenant or task daily budgets or token budgets. **Accepted**
 - Tenant budget checks are not atomic across workers: each concurrently running run of a tenant can overshoot by one step. **Accepted**
 - USD is stored as double precision: fine for limits, not for billing, which needs integer cents or `numeric`. **Accepted**
 
