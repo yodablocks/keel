@@ -859,6 +859,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     const seen = new Set<string>();
     // maxUsd of steps that started and haven't finished, so steps run in parallel can't all pass the check.
     let reservedUsd = 0;
+    const running = new Set<Promise<unknown>>();
 
     const step: StepApi = {
       async run<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
@@ -868,11 +869,23 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
         const over = overBudget(spent, run);
         if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
-        const reserved = reserveMaxUsd(name, options.maxUsd);
+        let reserved: number;
         try {
-          return await runStep(name, fn, options);
+          reserved = reserveMaxUsd(name, options.maxUsd);
+        } catch (refusal) {
+          // Let steps already running in parallel finish first, so their results and costs are stored. Otherwise
+          // the run stops under them, their spend is never counted, and they run again on the next attempt.
+          await Promise.allSettled(running);
+          throw refusal;
+        }
+        const pending = runStep(name, fn, options);
+        running.add(pending);
+        try {
+          return await pending;
         } finally {
-          reservedUsd -= reserved;
+          running.delete(pending);
+          // Repeated float adds and subtracts leave a residue; with nothing running, nothing is reserved.
+          reservedUsd = running.size === 0 ? 0 : reservedUsd - reserved;
         }
       },
     };
@@ -884,8 +897,9 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       if (typeof maxUsd !== "number" || !Number.isFinite(maxUsd) || maxUsd < 0) {
         throw new TypeError(`Step "${name}": maxUsd must be a number of dollars, 0 or more, got ${String(maxUsd)}`);
       }
-      if (run.budget_usd !== null && spent.usd + reservedUsd + maxUsd > run.budget_usd) {
-        const inFlight = reservedUsd > 0 ? ` (plus up to $${reservedUsd} for steps still running)` : "";
+      // The tolerance keeps float sums (0.1 + 0.1 + 0.1 > 0.3) from refusing a step that fits exactly.
+      if (run.budget_usd !== null && spent.usd + reservedUsd + maxUsd > run.budget_usd + USD_TOLERANCE) {
+        const inFlight = reservedUsd > USD_TOLERANCE ? ` (plus up to $${reservedUsd} for steps still running)` : "";
         throw new OverBudgetError(
           `Run ${run.id} spent $${spent.usd}${inFlight} of its $${run.budget_usd} budget, and step "${name}" could cost up to $${maxUsd}`,
         );
@@ -1348,6 +1362,8 @@ function overBudget(spent: Usage, run: ClaimedRun): string | undefined {
 }
 
 const OUTPUT_PREVIEW_CHARS = 2000;
+// A billionth of a dollar: far below any real price, far above float rounding.
+const USD_TOLERANCE = 1e-9;
 
 function errorEntry(run: ClaimedRun, ctx: FailureContext, verdict: FailureVerdict, action: FailureAction): RunError {
   return {

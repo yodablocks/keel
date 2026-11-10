@@ -85,6 +85,35 @@ test("steps run in parallel cannot both pass the check against the same spend", 
   const run = await status(engine, id, "waiting");
   assert.deepEqual(called, ["a"], "the second step saw the first one's reservation");
   assert.equal(run.errors[0]?.kind, "over_budget");
+
+  // "a" was still running when "b" was refused. Its result and cost are stored, not lost.
+  assertUsd(run.usage.usd, 0.6, "the step that was running when the run stopped is counted");
+
+  const escalation = await waitFor(
+    async () => (await engine.listPendingApprovals()).find((x) => x.runId === id),
+    5000,
+    "the over-budget escalation",
+  );
+  await engine.setRunBudget(id, { usd: 2 });
+  await engine.resolveApproval(id, escalation.name, { approved: true, by: "alice" });
+  const done = await status(engine, id, "completed");
+  assert.deepEqual(called, ["a", "b"], "after approval, a replays from storage instead of running again");
+  assertUsd(done.usage.usd, 1.2);
+});
+
+test("a step that fits exactly is not refused by float rounding", async (t) => {
+  // In floating point, 0.1 + 0.1 + 0.1 > 0.3.
+  const { engine, queue } = setup(t, {
+    agent: async (_payload, ctx) => {
+      await ctx.step.run("a", () => "a", step(0.1, 0.1));
+      await ctx.step.run("b", () => "b", step(0.1, 0.1));
+      await ctx.step.run("c", () => "c", step(0.1, 0.1));
+      return "done";
+    },
+  });
+
+  const { id } = await engine.enqueue("agent", {}, { queue, budget: { usd: 0.3 } });
+  await status(engine, id, "completed");
 });
 
 test("a run with no USD budget ignores maxUsd", async (t) => {

@@ -128,7 +128,7 @@ await ctx.step.run("draft", () => callModel(payload, { maxTokens: 4000 }), {
 });
 ```
 
-Before the step runs, keel checks the run's spend plus `maxUsd` against its USD budget. If it would cross it, the step never starts and the run stops as `over_budget`, exactly like a run already over budget: escalated to a person or falling back to a cheaper model. Steps run in parallel each reserve their `maxUsd` until they finish, so they can't all pass the check against the same spend.
+Before the step runs, keel checks the run's spend plus `maxUsd` against its USD budget. If it would cross it, the step never starts and the run stops as `over_budget`, exactly like a run already over budget: escalated to a person or falling back to a cheaper model. Steps run in parallel each reserve their `maxUsd` until they finish, so they can't all pass the check against the same spend. When one is refused, keel lets the others finish first, so their results and costs are stored and they don't run again after approval.
 
 keel trusts the number you give: it does not cap the call. Derive it from a limit the provider enforces, such as the call's `max_tokens`. Limits:
 
