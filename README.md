@@ -40,7 +40,7 @@ keel works out *why* a step failed and acts on it. It treats tokens and dollars 
 
 ## Quick start
 
-Requires Node.js 24+, pnpm 10+ and Docker. With nvm, `nvm use` picks Node 24 from `.nvmrc`.
+Requires Node.js 24+, pnpm 12+ and Docker. With nvm, `nvm use` picks Node 24 from `.nvmrc`.
 
 ```sh
 git clone git@github.com:yodablocks/keel.git && cd keel
