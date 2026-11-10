@@ -33,6 +33,8 @@ let calls = 0;
 const models = new Set<string>();
 let inputTokens = 0;
 let outputTokens = 0;
+// SDK 0.7 allows null token counts. Count those calls so the token totals are never silently low.
+let callsWithoutUsage = 0;
 
 // Records Jev's raw answer and token usage for every call the cascade makes.
 const recording: SystemOneClient = {
@@ -40,8 +42,10 @@ const recording: SystemOneClient = {
     const response = await sdk.systemOne(request as Parameters<typeof sdk.systemOne>[0]);
     calls++;
     models.add(response.model);
-    inputTokens += response.usage.input_tokens;
-    outputTokens += response.usage.output_tokens;
+    const { input_tokens, output_tokens } = response.usage;
+    if (input_tokens === null || output_tokens === null) callsWithoutUsage++;
+    inputTokens += input_tokens ?? 0;
+    outputTokens += output_tokens ?? 0;
     lastAnswer = (response.answers.failure_kind ?? {}) as { choice?: string; confidence?: number };
     return response;
   },
@@ -127,7 +131,7 @@ const summary = {
   },
   jevCalls: calls,
   models: [...models],
-  tokens: { input: inputTokens, output: outputTokens },
+  tokens: { input: inputTokens, output: outputTokens, callsWithoutUsage },
 };
 
 const pct = (k: number) => `${k}/${n} (${Math.round((k / n) * 100)}%)`;
@@ -151,7 +155,7 @@ printCostReport(
   })),
   [["rules", "Rules"], ["jev", "Jev raw"], ["cascade", "Cascade, as shipped"], ["change", "Cascade with the change"]],
 );
-console.log(`Jev calls: ${calls} (model ${[...models].join(", ")}), tokens: ${inputTokens} in / ${outputTokens} out`);
+console.log(`Jev calls: ${calls} (model ${[...models].join(", ")}), tokens: ${inputTokens} in / ${outputTokens} out${callsWithoutUsage ? ` (${callsWithoutUsage} calls reported no usage, so these totals are low)` : ""}`);
 console.log("\nMisclassified by the cascade with step context:");
 for (const r of rows.filter((r) => r.withContext.cascade !== r.label)) {
   console.log(`  [${r.label} -> ${r.withContext.cascade}] (jev: ${r.withContext.jev} @ ${r.withContext.jevConfidence?.toFixed(2)}) ${r.message}`);
