@@ -20,7 +20,7 @@
     "README.md",
     "LICENSE"
   ],
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@12.18.0",
   "engines": {
     "node": ">=24"
   },
