@@ -117,7 +117,23 @@ tasks: {
 
 - **Per-run budget:** checked before each new step. A run over its budget stops as `over_budget`, which the default policy escalates to a person, or falls back to a cheaper model (below).
 - **Tenant daily budget** (UTC day): the tenant's runs are deferred, not failed. Queued runs wait, and running runs pause as `waiting` at their next step. They continue the next day, or as soon as you raise the limit.
-- Budgets can overshoot by up to one step, because a step's cost is known only after it runs.
+- Budgets can overshoot by up to one step, because a step's cost is known only after it runs. To prevent that, declare the most a step can cost with `maxUsd` (below).
+
+### Stopping a step before it crosses the budget
+
+```ts
+await ctx.step.run("draft", () => callModel(payload, { maxTokens: 4000 }), {
+  usage: (r) => ({ usd: r.costUsd }),
+  maxUsd: 0.08, // 4,000 output tokens at $15/M, plus the input
+});
+```
+
+Before the step runs, keel checks the run's spend plus `maxUsd` against its USD budget. If it would cross it, the step never starts and the run stops as `over_budget`, exactly like a run already over budget: escalated to a person or falling back to a cheaper model. Steps run in parallel each reserve their `maxUsd` until they finish, so they can't all pass the check against the same spend. When one is refused, keel lets the others finish first, so their results and costs are stored and they don't run again after approval.
+
+keel trusts the number you give: it does not cap the call. Derive it from a limit the provider enforces, such as the call's `max_tokens`. Limits:
+
+- A step whose function throws records no cost, so money spent by a failed call is not counted against the budget, with or without `maxUsd`.
+- Only the per-run USD budget uses `maxUsd`. Tenant and task daily budgets, and token budgets, are still checked against what has been spent.
 
 ### Task budgets
 

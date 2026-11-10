@@ -30,7 +30,7 @@ keel works out *why* a step failed and acts on it. It treats tokens and dollars 
 | **Durable steps** | `ctx.step.run()` stores each step's result. After a crash or retry, completed steps replay from storage instead of running again. |
 | **Failure classification** | Every failure is classified as `transient`, `bad_input`, `bad_output`, `needs_human`, `over_budget` or `fatal`, and a policy picks the action: back off, retry with a corrective hint, fall back to a cheaper model, fail, or escalate. |
 | **Jev classifier** | An optional classifier that reads error *messages*, the failing step and the rejected model output, not just status codes, using [TypeSafe's Jev](https://docs.typesafe.ai) model, with a rule-based fallback. |
-| **Budgets** | Per-run budgets stop a run before its next step, and can fall back to a cheaper model instead of stopping. Tenant and per-task daily budgets defer runs instead of failing them. |
+| **Budgets** | Per-run budgets stop a run before its next step, or before a step whose declared maximum cost could cross the budget, and can fall back to a cheaper model instead of stopping. Tenant and per-task daily budgets defer runs instead of failing them. |
 | **Human in the loop** | Approvals inside workflows, and escalated failures that wait for a reviewer's decision. A run that failed wrongly can be retried by hand (`engine.retryRun`) and resumes after its completed steps. |
 | **Safe side effects** | Each step gets a stable idempotency key, so a step re-run after a crash can't charge a card twice. |
 | **Waits and events** | Durable sleeps and waits for external events that free the worker in the meantime. |
@@ -316,7 +316,7 @@ This set was written and labelled by the classifier's author, and at 100% it is 
 
 keel is an **experimental project**, and the name is not final. All planned milestones are implemented and tested ([PLAN.md](PLAN.md)). Apart from [one real workload of mine](#real-use), it hasn't been used, and never in production. Known limitations include:
 
-- Budgets can overshoot by one step, because a step's cost is known only after it runs.
+- Budgets can overshoot by one step, because a step's cost is known only after it runs, unless the step declares the most it can cost with [`maxUsd`](docs/guide.md#stopping-a-step-before-it-crosses-the-budget). A step that fails records no cost.
 - Idempotency keys protect external calls only for services that accept them.
 - Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
 - A single Postgres instance is the throughput ceiling: about 1,200 to 2,000 runs per second on one laptop in the benchmark above, lower since a macOS upgrade.
