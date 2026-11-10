@@ -100,6 +100,11 @@ test("runOnce claims at most maxRuns runs", async (t) => {
 test("runOnce refuses to run on a started worker", async (t) => {
   const { worker } = setup(t, {});
   worker.start();
-  t.after(() => worker.stop());
-  await assert.rejects(worker.runOnce(), /cannot be used while the worker is started/);
+  // Stop the worker here, not in t.after: setup's after hook closes the engine first, and a worker still
+  // running would then log "Cannot use a pool after calling end on the pool".
+  try {
+    await assert.rejects(worker.runOnce(), /cannot be used while the worker is started/);
+  } finally {
+    await worker.stop();
+  }
 });
