@@ -86,6 +86,12 @@ export interface TaskBudget {
 export interface StepOptions<T> {
   /** Reports what the step cost. Stored with the step result, so replays never count it twice. */
   usage?: (result: T) => Partial<Usage>;
+  /**
+   * The most this step can cost, in USD. When the run has a USD budget and its spend, plus this amount, plus
+   * what steps still running in parallel declared, would cross it, the step never starts: the run raises
+   * OverBudgetError before it, like a run already over budget. keel trusts the number; it does not cap the call.
+   */
+  maxUsd?: number;
 }
 
 export interface RunError {
@@ -851,6 +857,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       tokens: rows.reduce((sum, r) => sum + r.tokens, 0),
     };
     const seen = new Set<string>();
+    // maxUsd of steps that started and haven't finished, so steps run in parallel can't all pass the check.
+    let reservedUsd = 0;
 
     const step: StepApi = {
       async run<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options: StepOptions<T> = {}): Promise<T> {
@@ -860,58 +868,84 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
         const over = overBudget(spent, run);
         if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
-        if (run.tenant !== null || run.task_has_daily_budget) {
-          const { rows: blocked } = await pool.query<{ tenant: boolean; task: boolean }>(
-            `SELECT (runs.tenant IS NOT NULL AND ${TENANT_OVER_BUDGET}) AS tenant, ${TASK_OVER_BUDGET} AS task
-             FROM runs WHERE id = $1`,
-            [run.id],
-          );
-          if (blocked[0]?.tenant) throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
-          if (blocked[0]?.task) throw new RunSuspended(null, `Task ${run.task} is at its daily budget before step "${name}"`);
-        }
-
-        let value: T;
+        const reserved = reserveMaxUsd(name, options.maxUsd);
         try {
-          value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal });
-        } catch (stepError) {
-          if (typeof stepError === "object" && stepError !== null && !failedStepOf.has(stepError)) {
-            failedStepOf.set(stepError, name);
-          }
-          throw stepError;
+          return await runStep(name, fn, options);
+        } finally {
+          reservedUsd -= reserved;
         }
-        const usage = options.usage?.(value) ?? {};
-        const json = JSON.stringify(value ?? null);
-        // Fenced on the lease so a zombie worker cannot store results for a run it lost.
-        // Tenant and task daily spend are updated in the same statement, so they can never drift from the steps.
-        const { rows: inserted } = await pool.query<{ stored: number }>(
-          `WITH ins AS (
-             INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
-             SELECT $1, $2, $3::jsonb, $4, $6, $7
-             WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
-             ON CONFLICT (run_id, name) DO NOTHING
-             RETURNING usd, tokens
-           ), spend AS (
-             INSERT INTO tenant_spend (tenant, day, shard, usd, tokens)
-             SELECT $8, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens
-             FROM ins WHERE $8::text IS NOT NULL
-             ON CONFLICT (tenant, day, shard) DO UPDATE
-               SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
-           ), task_spent AS (
-             INSERT INTO task_spend (task, day, shard, usd, tokens)
-             SELECT $9, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens FROM ins
-             ON CONFLICT (task, day, shard) DO UPDATE
-               SET usd = task_spend.usd + EXCLUDED.usd, tokens = task_spend.tokens + EXCLUDED.tokens
-           )
-           SELECT count(*)::int AS stored FROM ins`,
-          [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant, run.task],
-        );
-        if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
-        spent.usd += usage.usd ?? 0;
-        spent.tokens += usage.tokens ?? 0;
-        progress.steps++;
-        return JSON.parse(json) as T;
       },
     };
+
+    // Checks a step's declared maxUsd against the run's USD budget and reserves it. Synchronous, so a step
+    // started in parallel sees the reservation.
+    function reserveMaxUsd(name: string, maxUsd: number | undefined): number {
+      if (maxUsd === undefined) return 0;
+      if (typeof maxUsd !== "number" || !Number.isFinite(maxUsd) || maxUsd < 0) {
+        throw new TypeError(`Step "${name}": maxUsd must be a number of dollars, 0 or more, got ${String(maxUsd)}`);
+      }
+      if (run.budget_usd !== null && spent.usd + reservedUsd + maxUsd > run.budget_usd) {
+        const inFlight = reservedUsd > 0 ? ` (plus up to $${reservedUsd} for steps still running)` : "";
+        throw new OverBudgetError(
+          `Run ${run.id} spent $${spent.usd}${inFlight} of its $${run.budget_usd} budget, and step "${name}" could cost up to $${maxUsd}`,
+        );
+      }
+      reservedUsd += maxUsd;
+      return maxUsd;
+    }
+
+    async function runStep<T>(name: string, fn: (call: StepCall) => T | Promise<T>, options: StepOptions<T>): Promise<T> {
+      if (run.tenant !== null || run.task_has_daily_budget) {
+        const { rows: blocked } = await pool.query<{ tenant: boolean; task: boolean }>(
+          `SELECT (runs.tenant IS NOT NULL AND ${TENANT_OVER_BUDGET}) AS tenant, ${TASK_OVER_BUDGET} AS task
+           FROM runs WHERE id = $1`,
+          [run.id],
+        );
+        if (blocked[0]?.tenant) throw new RunSuspended(null, `Tenant ${run.tenant} is at its daily budget before step "${name}"`);
+        if (blocked[0]?.task) throw new RunSuspended(null, `Task ${run.task} is at its daily budget before step "${name}"`);
+      }
+
+      let value: T;
+      try {
+        value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal });
+      } catch (stepError) {
+        if (typeof stepError === "object" && stepError !== null && !failedStepOf.has(stepError)) {
+          failedStepOf.set(stepError, name);
+        }
+        throw stepError;
+      }
+      const usage = options.usage?.(value) ?? {};
+      const json = JSON.stringify(value ?? null);
+      // Fenced on the lease so a zombie worker cannot store results for a run it lost.
+      // Tenant and task daily spend are updated in the same statement, so they can never drift from the steps.
+      const { rows: inserted } = await pool.query<{ stored: number }>(
+        `WITH ins AS (
+           INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
+           SELECT $1, $2, $3::jsonb, $4, $6, $7
+           WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
+           ON CONFLICT (run_id, name) DO NOTHING
+           RETURNING usd, tokens
+         ), spend AS (
+           INSERT INTO tenant_spend (tenant, day, shard, usd, tokens)
+           SELECT $8, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens
+           FROM ins WHERE $8::text IS NOT NULL
+           ON CONFLICT (tenant, day, shard) DO UPDATE
+             SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
+         ), task_spent AS (
+           INSERT INTO task_spend (task, day, shard, usd, tokens)
+           SELECT $9, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens FROM ins
+           ON CONFLICT (task, day, shard) DO UPDATE
+             SET usd = task_spend.usd + EXCLUDED.usd, tokens = task_spend.tokens + EXCLUDED.tokens
+         )
+         SELECT count(*)::int AS stored FROM ins`,
+        [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant, run.task],
+      );
+      if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
+      spent.usd += usage.usd ?? 0;
+      spent.tokens += usage.tokens ?? 0;
+      progress.steps++;
+      return JSON.parse(json) as T;
+    }
 
     // Registers the wait on first call and suspends. On replay, returns the outcome once it is final:
     // consuming the row decides between "event arrived" and "timed out" atomically.
