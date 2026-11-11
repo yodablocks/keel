@@ -822,8 +822,11 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     } catch (err) {
       threw = true;
       error = err;
-      // Steps still running in parallel with the one that failed finish first, while this worker holds the
-      // lease, so their results and costs are stored and the retry replays them instead of paying again.
+    }
+    try {
+      // Steps the handler left running (a parallel step failed, or it returned from Promise.race) finish first,
+      // while this worker holds the lease, so their results and costs are stored: a retry replays them instead
+      // of paying again, and a completed run counts what it paid for.
       await settleSteps?.();
     } finally {
       clearInterval(heartbeat);

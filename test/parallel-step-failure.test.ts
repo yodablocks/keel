@@ -83,3 +83,83 @@ test("a step from an earlier attempt cannot store its result into a newer attemp
   const { rows } = await db.query(`SELECT count(*)::int AS n FROM steps WHERE run_id = $1`, [id]);
   assert.equal(rows[0].n, 0, "nothing stored, and so no cost counted");
 });
+
+test("a handler that catches a parallel failure and returns still waits for the running step and counts it", async (t) => {
+  const calls = { a: 0 };
+  const { engine, queue } = setup(t, {
+    agent: async (_payload, ctx) => {
+      try {
+        await Promise.all([
+          ctx.step.run("a", async () => {
+            calls.a++;
+            await new Promise((r) => setTimeout(r, 100));
+            return "a";
+          }, { usage: () => ({ usd: 0.6 }) }),
+          ctx.step.run("b", () => {
+            throw new Error("b failed");
+          }),
+        ]);
+      } catch {
+        return "gave up on the pair"; // returns while "a" is still running
+      }
+    },
+  });
+
+  const { id } = await engine.enqueue("agent", {}, { queue });
+  const run = await status(engine, id, "completed");
+  assert.equal(calls.a, 1);
+  assertUsd(run.usage.usd, 0.6);
+});
+
+test("a handler that returns from Promise.race completes after the losing step finishes, and counts it", async (t) => {
+  const { engine, queue } = setup(t, {
+    agent: async (_payload, ctx) =>
+      Promise.race([
+        ctx.step.run("fast", () => "fast", { usage: () => ({ usd: 0.1 }) }),
+        ctx.step.run("slow", async () => {
+          await new Promise((r) => setTimeout(r, 100));
+          return "slow";
+        }, { usage: () => ({ usd: 0.6 }) }),
+      ]),
+  });
+
+  const { id } = await engine.enqueue("agent", {}, { queue });
+  const run = await status(engine, id, "completed");
+  assert.equal(run.result, "fast");
+  assertUsd(run.usage.usd, 0.7, "the losing step was paid for, so it counts");
+});
+
+test("a parallel step that never finishes holds the attempt, and stop({ timeoutMs }) still releases the run", async (t) => {
+  // Not the shared setup: its plain stop() would wait for the stuck step forever.
+  const engine = createEngine({ connectionString: DATABASE_URL });
+  const queue = uniqueQueue();
+  let started = false;
+  const worker = engine.createWorker({
+    queue,
+    policy: defaultPolicy({ baseMs: 10 }),
+    tasks: {
+      agent: async (_payload, ctx) => {
+        await Promise.all([
+          ctx.step.run("stuck", () => {
+            started = true;
+            return new Promise(() => {}); // a call with no timeout that never answers
+          }),
+          ctx.step.run("fails", async () => {
+            await new Promise((r) => setTimeout(r, 20));
+            throw new Error("fails");
+          }),
+        ]);
+      },
+    },
+  });
+  t.after(() => engine.close());
+  worker.start();
+
+  const { id } = await engine.enqueue("agent", {}, { queue });
+  await waitFor(async () => started, 5000, "the stuck step to start");
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal((await engine.getRun(id))?.status, "running", "the attempt waits for the stuck step");
+
+  await worker.stop({ timeoutMs: 200 });
+  assert.equal((await engine.getRun(id))?.status, "queued", "released for another worker");
+});
