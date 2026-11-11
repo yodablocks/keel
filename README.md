@@ -174,7 +174,7 @@ When a handler throws, the error goes through a **classifier** (what kind of fai
 4. **Budget.** With $0.13 of its $0.15 budget spent, the follow-up model call could cost up to $0.03 (its `maxUsd`). It never starts, so the budget is not overshot, and the run escalates instead of failing.
 5. **Approval.** A reviewer raises the budget and approves, and the run completes.
 
-The full recording, made with real Jev (`jev-1.13.0`, October 2026), is in [docs/demo-transcript.txt](docs/demo-transcript.txt); the September recording is kept as [docs/demo-transcript-2026-09.txt](docs/demo-transcript-2026-09.txt). `pnpm test` runs the offline version and checks every moment.
+The full recording, made with real Jev (`jev-latest`, November 2026), is in [docs/demo-transcript.txt](docs/demo-transcript.txt). Earlier recordings, from before `maxUsd`, are kept: [October](docs/demo-transcript-2026-10.txt) (`jev-1.13.0`) and [September](docs/demo-transcript-2026-09.txt). `pnpm test` runs the offline version and checks every moment.
 
 ## Compared with LangGraph and Temporal
 
