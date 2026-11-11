@@ -157,7 +157,7 @@ test("the dashboard says how much of a run's spend came from failed steps", asyn
   assert.match(page, /incl\. \$0\.50 · 1,200 tok from failed steps/);
 });
 
-test("an invalid reported amount is a programming error, and the step's own error is not hidden", async (t) => {
+test("an invalid reported amount is a programming error", async (t) => {
   const { engine, queue } = setup(t, {
     agent: async (_payload, ctx) => {
       await ctx.step.run("draft", (call) => {

@@ -856,19 +856,25 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     signal: AbortSignal,
     progress: { steps: number },
   ): Promise<{ step: StepApi; wait: WaitApi; approval: ApprovalApi }> {
-    const { rows } = await pool.query<{ name: string; result: unknown; usd: number; tokens: number }>(
-      `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
+    // One round trip: the run's failed-step cost, and its steps (a run with no steps gives one row of nulls).
+    const { rows: joined } = await pool.query<{
+      failed_usd: number;
+      failed_tokens: number;
+      name: string | null;
+      result: unknown;
+      usd: number | null;
+      tokens: number | null;
+    }>(
+      `SELECT runs.failed_usd, runs.failed_tokens, steps.name, steps.result, steps.usd, steps.tokens
+       FROM runs LEFT JOIN steps ON steps.run_id = runs.id WHERE runs.id = $1`,
       [run.id],
     );
-    const { rows: failed } = await pool.query<{ failed_usd: number; failed_tokens: number }>(
-      `SELECT failed_usd, failed_tokens FROM runs WHERE id = $1`,
-      [run.id],
-    );
+    const rows = joined.filter((r) => r.name !== null);
     const stored = new Map(rows.map((r) => [r.name, r.result]));
     // Only the lease holder adds steps, so in-memory totals stay exact for this attempt.
     const spent: Usage = {
-      usd: rows.reduce((sum, r) => sum + r.usd, failed[0]?.failed_usd ?? 0),
-      tokens: rows.reduce((sum, r) => sum + r.tokens, failed[0]?.failed_tokens ?? 0),
+      usd: rows.reduce((sum, r) => sum + r.usd!, joined[0]?.failed_usd ?? 0),
+      tokens: rows.reduce((sum, r) => sum + r.tokens!, joined[0]?.failed_tokens ?? 0),
     };
     const seen = new Set<string>();
     // maxUsd of steps that started and haven't finished, so steps run in parallel can't all pass the check.
