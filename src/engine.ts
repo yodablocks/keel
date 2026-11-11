@@ -806,19 +806,25 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     let result: unknown;
     let error: unknown;
     let threw = false;
+    let settleSteps: (() => Promise<void>) | undefined;
     try {
       if (!handler) throw new Error(`No handler registered for task "${run.task}"`);
+      const { settle, ...apis } = await createContextApis(run, abort.signal, current.progress);
+      settleSteps = settle;
       result = await handler(run.payload, {
         runId: run.id,
         attempt: run.attempt,
         ...(run.hint !== null && { hint: run.hint }),
         ...(run.fallback !== null && { fallback: run.fallback }),
-        ...(await createContextApis(run, abort.signal, current.progress)),
+        ...apis,
         signal: abort.signal,
       });
     } catch (err) {
       threw = true;
       error = err;
+      // Steps still running in parallel with the one that failed finish first, while this worker holds the
+      // lease, so their results and costs are stored and the retry replays them instead of paying again.
+      await settleSteps?.();
     } finally {
       clearInterval(heartbeat);
       inFlight = undefined;
@@ -855,7 +861,7 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
     run: ClaimedRun,
     signal: AbortSignal,
     progress: { steps: number },
-  ): Promise<{ step: StepApi; wait: WaitApi; approval: ApprovalApi }> {
+  ): Promise<{ step: StepApi; wait: WaitApi; approval: ApprovalApi; settle: () => Promise<void> }> {
     // One round trip: the run's failed-step cost, and its steps (a run with no steps gives one row of nulls).
     const { rows: joined } = await pool.query<{
       failed_usd: number;
@@ -889,15 +895,8 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
 
         const over = overBudget(spent, run);
         if (over) throw new OverBudgetError(`Run ${run.id} spent ${over} before step "${name}"`);
-        let reserved: number;
-        try {
-          reserved = reserveMaxUsd(name, options.maxUsd);
-        } catch (refusal) {
-          // Let steps already running in parallel finish first, so their results and costs are stored. Otherwise
-          // the run stops under them, their spend is never counted, and they run again on the next attempt.
-          await Promise.allSettled(running);
-          throw refusal;
-        }
+        // A refusal fails the handler, and the worker then lets steps still running in parallel finish (settle).
+        const reserved = reserveMaxUsd(name, options.maxUsd);
         const pending = runStep(name, fn, options);
         running.add(pending);
         try {
@@ -963,13 +962,14 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       const fromResult = options.usage?.(value) ?? {};
       const usage = { usd: reported.usd + (fromResult.usd ?? 0), tokens: reported.tokens + (fromResult.tokens ?? 0) };
       const json = JSON.stringify(value ?? null);
-      // Fenced on the lease so a zombie worker cannot store results for a run it lost.
+      // Fenced on the lease and the attempt, so neither a zombie worker nor a step left over from an earlier
+      // attempt of this worker (it can claim the run again at once) stores results.
       // Tenant and task daily spend are updated in the same statement, so they can never drift from the steps.
       const { rows: inserted } = await pool.query<{ stored: number }>(
         `WITH ins AS (
            INSERT INTO steps (run_id, name, result, attempt, usd, tokens)
            SELECT $1, $2, $3::jsonb, $4, $6, $7
-           WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
+           WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND attempt = $4 AND status = 'running')
            ON CONFLICT (run_id, name) DO NOTHING
            RETURNING usd, tokens
          ), ${dailySpendFrom("ins", "$8", "$9")}
@@ -990,11 +990,11 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         const { rows: updated } = await pool.query<{ stored: number }>(
           `WITH upd AS (
              UPDATE runs SET failed_usd = failed_usd + $2, failed_tokens = failed_tokens + $3
-             WHERE id = $1 AND lease_owner = $4 AND status = 'running'
+             WHERE id = $1 AND lease_owner = $4 AND attempt = $7 AND status = 'running'
              RETURNING $2::double precision AS usd, $3::double precision AS tokens
            ), ${dailySpendFrom("upd", "$5", "$6")}
            SELECT count(*)::int AS stored FROM upd`,
-          [run.id, usage.usd, usage.tokens, id, run.tenant, run.task],
+          [run.id, usage.usd, usage.tokens, id, run.tenant, run.task, run.attempt],
         );
         if (updated[0]!.stored === 0) return;
         spent.usd += usage.usd;
@@ -1065,7 +1065,12 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       },
     };
 
-    return { step, wait, approval };
+    // Waits for every step still running, including any started while waiting.
+    async function settle(): Promise<void> {
+      while (running.size > 0) await Promise.allSettled([...running]);
+    }
+
+    return { step, wait, approval, settle };
   }
 
   // A broken policy must not strand the run: its error becomes a fail action recorded on the run.
