@@ -77,6 +77,7 @@ Rules that keep replay correct:
 - **Step names must be unique within a run.** In loops, include the index: `` ctx.step.run(`fetch-${i}`, ...) ``. A repeated name throws `DuplicateStepError`.
 - **Results must be JSON-serializable.** They are JSON round-tripped on the first run too, so a `Date` is a string both times and `undefined` becomes `null`.
 - **A step that crashes before finishing runs again**, including its side effects. Make external calls idempotent where you can.
+- **Steps run in parallel** (`Promise.all`) are safe when one fails: before the attempt is recorded as failed, keel waits for the others to finish and stores their results, so the retry replays them instead of calling them again. A step that never finishes holds the attempt open until `ctx.signal` aborts it or the worker stops.
 
 ## Waits
 
@@ -149,7 +150,7 @@ await ctx.step.run("draft", async (call) => {
 
 What a failed step reported is added to the run's usage and to the tenant's and task's daily spend, so the next step, the next attempt and the budget checks all see it. `run.failedUsage` shows how much of `run.usage` came from failed steps, and the dashboard shows it under the run's spend. On success, reported amounts add to the `usage` option's, so report each cost one way only.
 
-Not counted: a call that never reports, for example one that crashes the worker or times out before replying, and a step still running when its run stops (a parallel step failed first), whose report arrives after the run is no longer this worker's.
+Not counted: a call that never reports, for example one that crashes the worker or times out before replying.
 
 ### Task budgets
 
