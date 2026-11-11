@@ -8,6 +8,10 @@ export const TOOLS = ["search_web", "read_page"];
 
 let emailCalls = 0;
 
+// The most each model call can cost: its output cap (max_tokens) at the model's price. keel refuses to start a
+// step whose maximum could cross the run's budget, so the budget is never overshot.
+const MAX_USD = { research: 0.05, plan: 0.04, draft: 0.06, followUp: 0.03 };
+
 export function agent(log: (line: string) => void, draftMs: number): TaskHandler {
   return async (payload, ctx) => {
     const { topic } = payload as { topic: string };
@@ -19,7 +23,7 @@ export function agent(log: (line: string) => void, draftMs: number): TaskHandler
         await sleep(200);
         return { notes: [`${topic} keeps state in a database`, "steps are replayed after a crash"] };
       },
-      { usage: () => ({ usd: 0.04, tokens: 1800 }) },
+      { usage: () => ({ usd: 0.04, tokens: 1800 }), maxUsd: MAX_USD.research },
     );
 
     const plan = await ctx.step.run(
@@ -37,7 +41,7 @@ export function agent(log: (line: string) => void, draftMs: number): TaskHandler
         log("calling model for plan (with hint)");
         return { tool: "search_web", query: topic };
       },
-      { usage: () => ({ usd: 0.03, tokens: 900 }) },
+      { usage: () => ({ usd: 0.03, tokens: 900 }), maxUsd: MAX_USD.plan },
     );
 
     const draft = await ctx.step.run(
@@ -47,7 +51,7 @@ export function agent(log: (line: string) => void, draftMs: number): TaskHandler
         await sleep(draftMs);
         return `A short brief on ${topic}, from ${research.notes.length} notes and a ${plan.tool} for "${plan.query}".`;
       },
-      { usage: () => ({ usd: 0.05, tokens: 2600 }) },
+      { usage: () => ({ usd: 0.05, tokens: 2600 }), maxUsd: MAX_USD.draft },
     );
 
     const sent = await ctx.step.run(
@@ -67,7 +71,7 @@ export function agent(log: (line: string) => void, draftMs: number): TaskHandler
         log("calling model for follow-up");
         return "Scheduled a follow-up question for next week.";
       },
-      { usage: () => ({ usd: 0.02, tokens: 700 }) },
+      { usage: () => ({ usd: 0.02, tokens: 700 }), maxUsd: MAX_USD.followUp },
     );
 
     return { draft, messageId: sent.messageId, followUp };
