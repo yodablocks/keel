@@ -17,8 +17,10 @@ export interface Run {
   lastError: RunError | null;
   /** One entry per failed attempt, oldest first. */
   errors: RunError[];
-  /** Sum of usage reported by completed steps. */
+  /** Everything the run's steps reported: completed steps, plus `failedUsage`. */
   usage: Usage;
+  /** What steps reported with `call.reportUsage` before they failed. Already included in `usage`. */
+  failedUsage: Usage;
   /** Earliest time the run can be claimed. Null when it only wakes on an event. */
   runAfter: Date | null;
   tenant: string | null;
@@ -152,6 +154,12 @@ export interface StepCall {
   idempotencyKey: string;
   /** Same as ctx.signal. */
   signal: AbortSignal;
+  /**
+   * Reports a cost as soon as it is known, for example right after the model replies. Unlike the `usage`
+   * option, it counts even if the step then fails: a reply that was billed and then rejected still counts
+   * against the budget. On success it adds to `usage`, so report each cost one way only.
+   */
+  reportUsage(usage: Partial<Usage>): void;
 }
 
 export interface StepApi {
@@ -627,8 +635,9 @@ const RELEASED_ERROR = `jsonb_build_object(
   'at', to_jsonb(now()))`;
 
 const RUN_COLUMNS = `id, queue, task, tenant, payload, status, attempt, result, last_error, errors, run_after, created_at, updated_at,
-  (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
-  (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens`;
+  failed_usd, failed_tokens,
+  failed_usd + (SELECT coalesce(sum(usd), 0) FROM steps WHERE run_id = runs.id) AS usage_usd,
+  failed_tokens + (SELECT coalesce(sum(tokens), 0) FROM steps WHERE run_id = runs.id) AS usage_tokens`;
 
 function toRun(row: Record<string, any>): Run {
   return {
@@ -643,6 +652,7 @@ function toRun(row: Record<string, any>): Run {
     lastError: row.last_error,
     errors: row.errors,
     usage: { usd: row.usage_usd, tokens: row.usage_tokens },
+    failedUsage: { usd: row.failed_usd, tokens: row.failed_tokens },
     runAfter: row.run_after instanceof Date ? row.run_after : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -850,11 +860,15 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
       `SELECT name, result, usd, tokens FROM steps WHERE run_id = $1`,
       [run.id],
     );
+    const { rows: failed } = await pool.query<{ failed_usd: number; failed_tokens: number }>(
+      `SELECT failed_usd, failed_tokens FROM runs WHERE id = $1`,
+      [run.id],
+    );
     const stored = new Map(rows.map((r) => [r.name, r.result]));
     // Only the lease holder adds steps, so in-memory totals stay exact for this attempt.
     const spent: Usage = {
-      usd: rows.reduce((sum, r) => sum + r.usd, 0),
-      tokens: rows.reduce((sum, r) => sum + r.tokens, 0),
+      usd: rows.reduce((sum, r) => sum + r.usd, failed[0]?.failed_usd ?? 0),
+      tokens: rows.reduce((sum, r) => sum + r.tokens, failed[0]?.failed_tokens ?? 0),
     };
     const seen = new Set<string>();
     // maxUsd of steps that started and haven't finished, so steps run in parallel can't all pass the check.
@@ -919,16 +933,29 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
         if (blocked[0]?.task) throw new RunSuspended(null, `Task ${run.task} is at its daily budget before step "${name}"`);
       }
 
+      const reported: Usage = { usd: 0, tokens: 0 };
+      const reportUsage = (more: Partial<Usage>) => {
+        for (const key of ["usd", "tokens"] as const) {
+          const amount = more[key];
+          if (amount === undefined) continue;
+          if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) {
+            throw new TypeError(`Step "${name}" reportUsage: ${key} must be a number, 0 or more, got ${String(amount)}`);
+          }
+          reported[key] += amount;
+        }
+      };
       let value: T;
       try {
-        value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal });
+        value = await fn({ idempotencyKey: `keel:${run.id}:${name}`, signal, reportUsage });
       } catch (stepError) {
         if (typeof stepError === "object" && stepError !== null && !failedStepOf.has(stepError)) {
           failedStepOf.set(stepError, name);
         }
+        if (reported.usd > 0 || reported.tokens > 0) await storeFailedUsage(reported);
         throw stepError;
       }
-      const usage = options.usage?.(value) ?? {};
+      const fromResult = options.usage?.(value) ?? {};
+      const usage = { usd: reported.usd + (fromResult.usd ?? 0), tokens: reported.tokens + (fromResult.tokens ?? 0) };
       const json = JSON.stringify(value ?? null);
       // Fenced on the lease so a zombie worker cannot store results for a run it lost.
       // Tenant and task daily spend are updated in the same statement, so they can never drift from the steps.
@@ -939,26 +966,36 @@ function createWorker(pool: pg.Pool, options: WorkerOptions): Worker {
            WHERE EXISTS (SELECT 1 FROM runs WHERE id = $1 AND lease_owner = $5 AND status = 'running')
            ON CONFLICT (run_id, name) DO NOTHING
            RETURNING usd, tokens
-         ), spend AS (
-           INSERT INTO tenant_spend (tenant, day, shard, usd, tokens)
-           SELECT $8, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens
-           FROM ins WHERE $8::text IS NOT NULL
-           ON CONFLICT (tenant, day, shard) DO UPDATE
-             SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
-         ), task_spent AS (
-           INSERT INTO task_spend (task, day, shard, usd, tokens)
-           SELECT $9, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens FROM ins
-           ON CONFLICT (task, day, shard) DO UPDATE
-             SET usd = task_spend.usd + EXCLUDED.usd, tokens = task_spend.tokens + EXCLUDED.tokens
-         )
+         ), ${dailySpendFrom("ins", "$8", "$9")}
          SELECT count(*)::int AS stored FROM ins`,
-        [run.id, name, json, run.attempt, id, usage.usd ?? 0, usage.tokens ?? 0, run.tenant, run.task],
+        [run.id, name, json, run.attempt, id, usage.usd, usage.tokens, run.tenant, run.task],
       );
       if (inserted[0]!.stored === 0) throw new LeaseLostError(`Worker ${id} lost the lease on run ${run.id} during step "${name}"`);
-      spent.usd += usage.usd ?? 0;
-      spent.tokens += usage.tokens ?? 0;
+      spent.usd += usage.usd;
+      spent.tokens += usage.tokens;
       progress.steps++;
       return JSON.parse(json) as T;
+    }
+
+    // Keeps what a failed step reported on the run, fenced and with daily spend like a stored step. Never throws:
+    // the step's own error is what the run must see. A run this worker no longer holds stores nothing.
+    async function storeFailedUsage(usage: Usage): Promise<void> {
+      try {
+        const { rows: updated } = await pool.query<{ stored: number }>(
+          `WITH upd AS (
+             UPDATE runs SET failed_usd = failed_usd + $2, failed_tokens = failed_tokens + $3
+             WHERE id = $1 AND lease_owner = $4 AND status = 'running'
+             RETURNING $2::double precision AS usd, $3::double precision AS tokens
+           ), ${dailySpendFrom("upd", "$5", "$6")}
+           SELECT count(*)::int AS stored FROM upd`,
+          [run.id, usage.usd, usage.tokens, id, run.tenant, run.task],
+        );
+        if (updated[0]!.stored === 0) return;
+        spent.usd += usage.usd;
+        spent.tokens += usage.tokens;
+      } catch {
+        // A database error here must not replace the step's error.
+      }
     }
 
     // Registers the wait on first call and suspends. On replay, returns the outcome once it is final:
@@ -1359,6 +1396,24 @@ function overBudget(spent: Usage, run: ClaimedRun): string | undefined {
   if (run.budget_usd !== null && spent.usd >= run.budget_usd) return `$${spent.usd} of its $${run.budget_usd} budget`;
   if (run.budget_tokens !== null && spent.tokens >= run.budget_tokens) return `${spent.tokens} of its ${run.budget_tokens} token budget`;
   return undefined;
+}
+
+// CTEs adding the cost rows of `source` (columns usd, tokens) to the tenant's and the task's daily spend, so
+// daily spend is updated in the same statement as the cost and can never drift from it.
+function dailySpendFrom(source: string, tenantParam: string, taskParam: string): string {
+  return `spend AS (
+           INSERT INTO tenant_spend (tenant, day, shard, usd, tokens)
+           SELECT ${tenantParam}, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens
+           FROM ${source} WHERE ${tenantParam}::text IS NOT NULL
+           ON CONFLICT (tenant, day, shard) DO UPDATE
+             SET usd = tenant_spend.usd + EXCLUDED.usd, tokens = tenant_spend.tokens + EXCLUDED.tokens
+         ), task_spent AS (
+           INSERT INTO task_spend (task, day, shard, usd, tokens)
+           SELECT ${taskParam}, (now() AT TIME ZONE 'utc')::date, floor(random() * ${SPEND_SHARDS})::smallint, usd, tokens
+           FROM ${source}
+           ON CONFLICT (task, day, shard) DO UPDATE
+             SET usd = task_spend.usd + EXCLUDED.usd, tokens = task_spend.tokens + EXCLUDED.tokens
+         )`;
 }
 
 const OUTPUT_PREVIEW_CHARS = 2000;
