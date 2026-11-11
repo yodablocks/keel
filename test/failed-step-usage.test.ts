@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import pg from "pg";
 import { createEngine, defaultPolicy, startDashboard } from "../src/index.ts";
 import type { TaskHandler } from "../src/index.ts";
 import { DATABASE_URL, uniqueQueue } from "./helpers/db.ts";
@@ -155,6 +156,34 @@ test("the dashboard says how much of a run's spend came from failed steps", asyn
   await status(engine, id, "failed");
   const page = await (await fetch(`${dashboard.url}/runs/${id}`)).text();
   assert.match(page, /incl\. \$0\.50 · 1,200 tok from failed steps/);
+});
+
+test("a worker that lost the run stores no failed cost, and the step's own error still comes through", async (t) => {
+  const db = new pg.Client({ connectionString: DATABASE_URL });
+  await db.connect();
+  t.after(() => db.end());
+  const original = new Error("could not parse the reply");
+  let caught: unknown;
+  const { engine, queue } = setup(t, {
+    agent: async (_payload, ctx) => {
+      try {
+        await ctx.step.run("draft", async (call) => {
+          call.reportUsage({ usd: 0.5 });
+          // Another worker takes the run over while this step is still running.
+          await db.query(`UPDATE runs SET lease_owner = 'another-worker' WHERE id = $1`, [ctx.runId]);
+          throw original;
+        });
+      } catch (error) {
+        caught = error;
+      }
+    },
+  });
+
+  const { id } = await engine.enqueue("agent", {}, { queue });
+  await waitFor(async () => caught !== undefined, 5000, "the step to fail");
+  assert.equal(caught, original, "the same error object, not a database or lease error");
+  const { rows } = await db.query(`SELECT failed_usd FROM runs WHERE id = $1`, [id]);
+  assert.equal(rows[0].failed_usd, 0, "the write is fenced on the lease");
 });
 
 test("an invalid reported amount is a programming error", async (t) => {
