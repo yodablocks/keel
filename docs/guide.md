@@ -132,8 +132,24 @@ Before the step runs, keel checks the run's spend plus `maxUsd` against its USD 
 
 keel trusts the number you give: it does not cap the call. Derive it from a limit the provider enforces, such as the call's `max_tokens`. Limits:
 
-- A step whose function throws records no cost, so money spent by a failed call is not counted against the budget, with or without `maxUsd`.
+- A step that fails counts only the cost it reported with `call.reportUsage` before failing (below).
 - Only the per-run USD budget uses `maxUsd`. Tenant and task daily budgets, and token budgets, are still checked against what has been spent.
+
+### Counting a call that was paid for and then failed
+
+The `usage` option reads the cost from the step's result, so a step that throws has none: a model reply that was billed and then rejected (unparseable, failed validation) would cost nothing as far as the budget knows, and a retry loop could keep paying. Report the cost from inside the step as soon as you know it:
+
+```ts
+await ctx.step.run("draft", async (call) => {
+  const reply = await callModel(payload);
+  call.reportUsage({ usd: reply.costUsd, tokens: reply.totalTokens }); // counted even if the next line throws
+  return parseDraft(reply.text);
+});
+```
+
+What a failed step reported is added to the run's usage and to the tenant's and task's daily spend, so the next step, the next attempt and the budget checks all see it. `run.failedUsage` shows how much of `run.usage` came from failed steps, and the dashboard shows it under the run's spend. On success, reported amounts add to the `usage` option's, so report each cost one way only.
+
+Not counted: a call that never reports, for example one that crashes the worker or times out before replying, and a step still running when its run stops (a parallel step failed first), whose report arrives after the run is no longer this worker's.
 
 ### Task budgets
 

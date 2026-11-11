@@ -316,7 +316,7 @@ This set was written and labelled by the classifier's author, and at 100% it is 
 
 keel is an **experimental project**, and the name is not final. All planned milestones are implemented and tested ([PLAN.md](PLAN.md)). Apart from [one real workload of mine](#real-use), it hasn't been used, and never in production. Known limitations include:
 
-- Budgets can overshoot by one step, because a step's cost is known only after it runs, unless the step declares the most it can cost with [`maxUsd`](docs/guide.md#stopping-a-step-before-it-crosses-the-budget). A step that fails records no cost.
+- Budgets can overshoot by one step, because a step's cost is known only after it runs, unless the step declares the most it can cost with [`maxUsd`](docs/guide.md#stopping-a-step-before-it-crosses-the-budget). A step that fails counts only the cost it reported before failing, with [`call.reportUsage`](docs/guide.md#counting-a-call-that-was-paid-for-and-then-failed).
 - Idempotency keys protect external calls only for services that accept them.
 - Retention is opt-in: without `retention` on a worker or calls to `engine.purge`, finished runs are kept forever.
 - A single Postgres instance is the throughput ceiling: about 1,200 to 2,000 runs per second on one laptop in the benchmark above, lower since a macOS upgrade.
