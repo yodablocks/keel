@@ -2,7 +2,7 @@
 //   1. the model hallucinates a tool name and the classifier sends a corrective hint
 //   2. worker A is SIGKILLed mid-draft and worker B resumes from stored steps
 //   3. the email API rate-limits and the run backs off
-//   4. the run goes over budget and escalates to a person
+//   4. the follow-up could cross the budget, so it never starts and the run escalates to a person
 //   5. the reviewer raises the budget and approves, and the run completes
 // Usage: pnpm demo (real Jev, needs TYPESAFE_API_KEY) or pnpm demo --offline
 import { spawn, type ChildProcess } from "node:child_process";
@@ -37,8 +37,8 @@ function startWorker(name: string, onLine: (line: string) => void = () => {}): C
 }
 
 say(`keel demo: queue ${queue}, classifier: ${offline ? "offline stand-in (set TYPESAFE_API_KEY for real Jev)" : "Jev (jev-latest)"}`);
-const { id } = await engine.enqueue(TASK, { topic: "durable execution" }, { queue, budget: { usd: 0.125 }, maxAttempts: 6 });
-say(`[demo] enqueued run ${id} with a $0.125 budget`);
+const { id } = await engine.enqueue(TASK, { topic: "durable execution" }, { queue, budget: { usd: 0.15 }, maxAttempts: 6 });
+say(`[demo] enqueued run ${id} with a $0.15 budget`);
 
 let killedA = false;
 const workerA = startWorker("A", (line) => {

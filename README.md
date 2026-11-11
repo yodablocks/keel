@@ -171,10 +171,10 @@ When a handler throws, the error goes through a **classifier** (what kind of fai
 1. **Hallucinated tool.** The model calls `serch_web`. Jev classifies the plain error as `bad_output` (confidence 0.97), and the retry's hint fixes the plan.
 2. **Crash.** Worker A is `SIGKILL`ed mid-draft. Worker B resumes, and the earlier steps are replayed from storage, not called again.
 3. **Rate limit.** The email API returns 429. The run backs off and retries with the same idempotency key.
-4. **Over budget.** The run has spent $0.13 of its $0.125 budget, so it escalates instead of failing.
+4. **Budget.** With $0.13 of its $0.15 budget spent, the follow-up model call could cost up to $0.03 (its `maxUsd`). It never starts, so the budget is not overshot, and the run escalates instead of failing.
 5. **Approval.** A reviewer raises the budget and approves, and the run completes.
 
-The full recording, made with real Jev (`jev-1.13.0`, October 2026), is in [docs/demo-transcript.txt](docs/demo-transcript.txt); the September recording is kept as [docs/demo-transcript-2026-09.txt](docs/demo-transcript-2026-09.txt). `pnpm test` runs the offline version and checks every moment.
+The full recording, made with real Jev (`jev-latest`, November 2026), is in [docs/demo-transcript.txt](docs/demo-transcript.txt). Earlier recordings, from before `maxUsd`, are kept: [October](docs/demo-transcript-2026-10.txt) (`jev-1.13.0`) and [September](docs/demo-transcript-2026-09.txt). `pnpm test` runs the offline version and checks every moment.
 
 ## Compared with LangGraph and Temporal
 
