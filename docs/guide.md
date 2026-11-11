@@ -77,7 +77,7 @@ Rules that keep replay correct:
 - **Step names must be unique within a run.** In loops, include the index: `` ctx.step.run(`fetch-${i}`, ...) ``. A repeated name throws `DuplicateStepError`.
 - **Results must be JSON-serializable.** They are JSON round-tripped on the first run too, so a `Date` is a string both times and `undefined` becomes `null`.
 - **A step that crashes before finishing runs again**, including its side effects. Make external calls idempotent where you can.
-- **Steps run in parallel** (`Promise.all`) are safe when one fails: before the attempt is recorded as failed, keel waits for the others to finish and stores their results, so the retry replays them instead of calling them again. A step that never finishes holds the attempt open until `ctx.signal` aborts it or the worker stops.
+- **Steps run in parallel** are safe when one fails: before the attempt ends, keel waits for every step still running and stores its result and cost, so a retry replays it instead of calling it again. The same holds when the handler returns early, for example from `Promise.race` or after catching a failure, so a run completes only once its steps have. A step that never finishes therefore holds the run: give external calls a timeout. `worker.stop({ timeoutMs })` still releases such a run for another worker.
 
 ## Waits
 
