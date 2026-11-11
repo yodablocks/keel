@@ -186,7 +186,11 @@ export async function startDashboard(options: DashboardOptions): Promise<Dashboa
 
       <dl class="facts">
         <div><dt>Attempt</dt><dd class="mono">${run.attempt}</dd></div>
-        <div><dt>Spent</dt><dd class="mono">${usd(run.usage.usd)} · ${run.usage.tokens.toLocaleString("en-US")} tok</dd></div>
+        <div><dt>Spent</dt><dd class="mono">${usd(run.usage.usd)} · ${run.usage.tokens.toLocaleString("en-US")} tok${
+          run.failedUsage.usd > 0 || run.failedUsage.tokens > 0
+            ? html`<br><span class="dim">incl. ${usd(run.failedUsage.usd)} · ${run.failedUsage.tokens.toLocaleString("en-US")} tok from failed steps</span>`
+            : ""
+        }</dd></div>
         <div><dt>Created</dt><dd class="mono" title="${run.createdAt.toISOString()}">${stamp(run.createdAt)}</dd></div>
         <div><dt>Next eligible</dt><dd class="mono">${TERMINAL.includes(run.status) ? "·" : run.runAfter ? stamp(run.runAfter) : "on event"}</dd></div>
       </dl>
